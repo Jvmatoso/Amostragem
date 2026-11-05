@@ -157,5 +157,11 @@ Como observado na Figura \@ref(fig:fig-distribuicao-amostral), as medições con
 ```{r codigo-estimadores, file="R/estimadores.R", eval=FALSE, echo=TRUE}
 ```
 
+```{r codigo-priori, file="R/priori.R", eval=FALSE, echo=TRUE}
+```
+
+```{r codigo-validar-survey, file="R/validar-survey.R", eval=FALSE, echo=TRUE}
+```
+
 ```{r codigo-simulacao, file="R/simulacao.R", eval=FALSE, echo=TRUE}
 ```

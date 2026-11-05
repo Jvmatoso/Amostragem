@@ -78,6 +78,8 @@ R/
   preparar-dados.R      # download + limpeza + pareamento (roda uma vez)
   planos.R              # seleção de cada plano
   estimadores.R         # estimativas e variâncias
+  priori.R              # desenhos a custo igual + margem a priori (2018)
+  validar-survey.R      # validação contra o survey e do custo realizado
   simulacao.R           # amostra oficial + Monte Carlo
 dados/                  # secoes-sp-2022.csv, dicionario.csv
 resultados/             # amostra-oficial.rds, simulacao.rds (o .Rmd lê, não refaz)
@@ -90,6 +92,8 @@ O zip original do professor trazia `__MACOSX/` e `.Rproj.user/`: são lixo do ma
 
 ```bash
 Rscript R/preparar-dados.R
+Rscript R/priori.R
+Rscript R/validar-survey.R
 Rscript R/simulacao.R
 Rscript -e 'rmarkdown::render("relatorio.Rmd")'
 ```
@@ -113,9 +117,12 @@ Rodar a partir da raiz. Só caminhos relativos.
 
 ## Decisões em aberto (perguntar ao usuário antes de implementar)
 Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o usuário, registrar em `docs/registro.md` e então mover o item para "Decisões tomadas".
-- Município de São Paulo como estrato próprio na estratificada? (não coberto pela decisão de 2026-11-05)
+- (nenhuma no momento)
 
 ## Decisões tomadas
+- **Plano 3, capital e grade m × k** (2026-11-05): k_SP proporcional à fatia de aptos da capital (±5 p.p.); k comum fora da capital; subamostra independente por sorteio. Ver `docs/registro.md`.
+- **Plano 4** (2026-11-05): AAS no pareado, Ŷ_R = (ȳ/z̄)·Z, R̂ = Ŷ_R / X_pareado; avaliado contra gabarito pareado e total.
+- **Capital na estratificada** (2026-11-05): município de São Paulo **não** é estrato próprio (ganho desprezível em 2018: 0,959 → 0,957); estratos = 11 regiões intermediárias.
 - **Seções sem par em 2018** (confirmado em 2026-11-05): tratadas à parte. Plano 4 no subconjunto pareado (94,48% das seções de 2022, 94,88% do eleitorado); as sem par são discutidas como erro de cobertura, sem imputação. Ver `docs/registro.md`.
 - **Estratos** (2026-11-05): regiões geográficas intermediárias do IBGE (justificativa: divisão oficial, fácil de defender). Confirmar com 2018 que a abstenção varia mais entre regiões do que dentro delas.
 - **PPT no plano 3** (2026-11-05): 1º estágio com reposição, estimador de Hansen–Hurwitz e sua variância. Declarar no relatório que é uma aproximação do sorteio sem reposição ("erro técnico") e discutir a distorção. O município de São Paulo (27,4% dos aptos) é **autorrepresentativo**: entra com certeza (π = 1 no 1º estágio, AAS de seções dentro dele); o PPT com reposição é feito só entre os demais municípios. O total estimado é a soma das duas partes, e a variância também (sorteios independentes).
