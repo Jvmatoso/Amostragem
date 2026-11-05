@@ -117,7 +117,11 @@ Rodar a partir da raiz. Só caminhos relativos.
 
 ## Decisões em aberto (perguntar ao usuário antes de implementar)
 Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o usuário, registrar em `docs/registro.md` e então mover o item para "Decisões tomadas".
-- (nenhuma no momento)
+- **Plano 3: escolher o par (m, k) da amostra oficial e do Monte Carlo** (decidir no início da etapa 5). A margem a priori cai com m; no orçamento 800 o melhor da grade foi m = 300, o limite dela (`ms` em `grade_plano3`, `R/planos.R`), então pode ser preciso estender a grade. Grade completa em `resultados/desenho.rds`; margens em `resultados/margem-priori.csv`.
+
+## Pendências para verificar adiante
+- **Etapa 6 (Monte Carlo):** conferir as margens/variâncias a priori (`R/priori.R`, sobretudo a fórmula do plano 3) contra a variância empírica entre réplicas. Até lá, não foram validadas por simulação.
+- Investigar por que a Neyman, a custo igual, fica atrás da proporcional (causa não investigada; ver `docs/registro.md`).
 
 ## Decisões tomadas
 - **Plano 3, capital e grade m × k** (2026-11-05): k_SP proporcional à fatia de aptos da capital (±5 p.p.); k comum fora da capital; subamostra independente por sorteio. Ver `docs/registro.md`.
