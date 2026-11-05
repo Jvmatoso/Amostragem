@@ -1,0 +1,18 @@
+nome,descricao,unidade,origem
+id_secao,Identificador da seção (município TSE-zona-seção),texto,derivada
+cd_municipio_tse,Código do município no TSE,código,TSE 2022
+cod_ibge,Código do município no IBGE (7 dígitos),código,IBGE (API de localidades)
+nm_municipio,Nome do município (TSE),texto,TSE 2022
+nr_zona,Número da zona eleitoral,número,TSE 2022
+nr_secao,Número da seção eleitoral,número,TSE 2022
+cod_regiao_int,Código da região geográfica intermediária (IBGE),código,IBGE (API de localidades)
+nm_regiao_int,Nome da região geográfica intermediária (IBGE); estrato do plano 2,texto,IBGE (API de localidades)
+capital,Seção no município de São Paulo (UPA autorrepresentativa no plano 3),lógico,derivada
+aptos,Eleitores aptos em 2022 (x),eleitores,TSE 2022
+comparecimento,Comparecimento em 2022,eleitores,TSE 2022
+abstencoes,Abstenções em 2022 (y),eleitores,TSE 2022
+brancos,"Votos brancos para Governador, 2022 (parâmetro secundário)",votos,TSE 2022
+nulos,"Votos nulos para Governador, 2022 (parâmetro secundário)",votos,TSE 2022
+pareada,Seção encontrada em 2018 pela chave município + zona + seção,lógico,derivada (pareamento)
+aptos_2018,Eleitores aptos em 2018 na mesma seção (NA se sem par),eleitores,TSE 2018
+abstencoes_2018,Abstenções em 2018 na mesma seção (z; NA se sem par),eleitores,TSE 2018

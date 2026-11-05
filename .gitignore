@@ -1,0 +1,18 @@
+# Dados brutos do TSE (grandes; baixados por R/preparar-dados.R)
+dados-brutos/*
+!dados-brutos/.gitkeep
+
+# RStudio / sistema
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+__MACOSX/
+
+# Saídas de compilação
+relatorio.html
+relatorio_files/
+*_cache/
+entrega/
+*.zip

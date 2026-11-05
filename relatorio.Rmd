@@ -1,0 +1,161 @@
+---
+title: "Seu título"
+subtitle: "ME430 - Técnicas de Amostragem"
+author:
+  - "Autor 1 - RA: 123456"
+  - "Autor 2 - RA: 234567"
+  - "Autor 3 - RA: 345678"
+  - "Autor 4 - RA: 456789"
+date: "`r Sys.Date()`"
+output:
+  bookdown::html_document2:
+    fig_caption: true
+    number_sections: true
+    toc: true
+    toc_float: true
+bibliography: referencias.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(knitr)
+library(ggplot2)
+
+# Configuração central do projeto (semente, B, orçamentos, custos, caminhos)
+source("R/config.R")
+
+# Definindo a semente para garantir reprodutibilidade (valor vem de R/config.R)
+set.seed(SEMENTE)
+```
+
+# Planejamento Metodológico
+
+
+## Definição do Problema
+
+<!-- *	Qual a pergunta de interesse? O que será estimado neste projeto? -->
+<!-- *	Qual a população a ser amostrada?  (Defina explicitamente o critério de inclusão de uma UE na população alvo e na população amostrada. Se você planeja coletar a amostra ao longo do tempo, não se esqueça de incluir a data/período na sua definição de população alvo e na população amostrada.  Por exemplo, pessoas visitando uma loja num período de dois dias.)  -->
+<!-- *	Qual é a UE desse projeto?  -->
+<!-- *	Quais medidas/informações da UEs serão coletadas?  -->
+<!-- *	Baseando-se no “custo” do seu tamanho amostral (tempo disponível do seu grupo para amostragem e coleta de dados), qual seria um tamanho de amostra factível? Qual margem de erro você espera para suas estimativas?  -->
+
+## Delineamento Amostral
+
+<!-- *	Descreva seu plano amostral proposto de maneira concisa.  -->
+<!-- *	Estratificação será empregada para seleção da amostra? Se sim, como e com qual propósito? -->
+<!-- *	Utilizará amostra por conglomerados?  Quantos estágios? -->
+<!-- *	Defina a UE e como ela será selecionada. -->
+<!-- *	A probabilidade de amostragem será a mesma para cada UE da amostra? Caso não seja, descreva como calcular a probabilidade de seleção para cada UE.  -->
+<!-- *	Qual o tamanho da amostra e como ela será alocada entre os estratos e estágios amostrais? No que você se baseará para fazer as decisões de alocação da amostra? -->
+
+## Protocolo de Coleta e Métodos de Estimação
+
+<!-- *	Como as observações serão coletadas?  -->
+<!-- *	Descreva seu método de estimação do(s) parâmetro(s) populacional e da variância associada às estimativas. -->
+
+Aqui um exemplo citando @bolfarine2005.
+
+
+# Execução e Resultados
+
+
+## Amostragem
+
+<!-- *	Quais os passos do procedimento que você acabou realmente utilizando para coletar sua amostra? -->
+<!-- *	Como esses procedimentos diferem (se for o caso) do plano amostral proposto originalmente? -->
+<!-- *	Você encontrou problemas ao coletar os dados?  Se sim, descreva brevemente como você lidou com esses problemas. -->
+
+
+## Coleta de Dados
+
+<!-- *	Como as observações/medidas foram feitas na amostra coletada? -->
+<!-- *	Houve algum problema de medição? Se sim, como você lidou com esses problemas? -->
+<!-- *	Quais suas considerações sobre o efeito de erros não amostrais na sua pesquisa? -->
+
+## Análise e Estimativas Obtidas
+
+<!-- *	Como o(s) parâmetro(s) populacional foi (foram) estimado(s) (apresente a fórmula exata utilizada)? -->
+<!-- *	Como você estimou a variância associada à(s) estimativa(s) (apresente a fórmula exata utilizada)? -->
+<!-- * Se você utilizou algum software, o código deve estar contido neste .rmd (echo=FALSE). -->
+
+```{r simulacao-exemplar, include=FALSE}
+# Exemplo genérico de cálculo numérico no R para uso via código inline
+amostra_exemplo <- c(12.4, 15.1, 10.8, 14.2, 11.5, 13.0, 12.1)
+n_amostra <- length(amostra_exemplo)
+media_estimada <- mean(amostra_exemplo)
+dp_estimado <- sd(amostra_exemplo)
+```
+
+<!-- Exemplo de texto usando r inline -->
+
+A partir do procedimento aplicado, obteve-se um tamanho amostral de $n = `r n_amostra`$ observações. A estimativa pontual para a média populacional é de `r round(media_estimada, 2)`, com desvio padrão amostral de `r round(dp_estimado, 2)`.
+
+<!-- Exemplo de Tabela com Referência Cruzada -->
+
+A Tabela \@ref(tab:tab-resumo-estatistico) ilustra o formato padrão para exibição de tabelas informativas no relatório.
+
+```{r tab-resumo-estatistico}
+dados_tabela <- data.frame(
+  Métrica = c("Tamanho Amostral (n)", "Média Estimada", "Desvio Padrão"),
+  Valor = c(n_amostra, round(media_estimada, 2), round(dp_estimado, 2))
+)
+
+knitr::kable(
+  dados_tabela,
+  col.names = c("Métrica Estatística", "Valor"),
+  caption = "Exemplo de tabela resumo para demonstração de referência cruzada."
+)
+```
+
+
+
+<!-- Exemplo de Gráfico com Referência Cruzada -->
+
+A Figura \@ref(fig:fig-distribuicao-amostral) exibe a distribuição da variável de interesse.
+
+```{r fig-distribuicao-amostral, fig.cap = "Exemplo de figura demonstrativa para aplicação de referência cruzada."}
+df_grafico <- data.frame(Valor = amostra_exemplo)
+
+ggplot(df_grafico, aes(x = Valor)) +
+  geom_histogram(bins = 5, fill = "steelblue", color = "black", alpha = 0.7) +
+  labs(
+    x = "Variável Mensurada",
+    y = "Frequência"
+  ) +
+  theme_minimal()
+```
+
+Como observado na Figura \@ref(fig:fig-distribuicao-amostral), as medições concentram-se em torno do valor estimado.
+
+
+## Considerações Finais
+
+<!-- *	Apresente as estimativas geradas a partir do estudo. -->
+<!-- *	Quão boas você as considera, levando em conta a precisão estatística e outros problemas que você suspeita ou pode detectar? -->
+
+
+# Referências
+
+<div id="refs"></div>
+
+# (APPENDIX) Apêndice {-}
+
+# Código utilizado
+
+<!-- O enunciado pede que o código esteja no .Rmd. Os scripts ficam em R/ e são
+     exibidos aqui sem serem executados de novo (eval = FALSE). -->
+
+```{r codigo-config, file="R/config.R", eval=FALSE, echo=TRUE}
+```
+
+```{r codigo-preparar-dados, file="R/preparar-dados.R", eval=FALSE, echo=TRUE}
+```
+
+```{r codigo-planos, file="R/planos.R", eval=FALSE, echo=TRUE}
+```
+
+```{r codigo-estimadores, file="R/estimadores.R", eval=FALSE, echo=TRUE}
+```
+
+```{r codigo-simulacao, file="R/simulacao.R", eval=FALSE, echo=TRUE}
+```
