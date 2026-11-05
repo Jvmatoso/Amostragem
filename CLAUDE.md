@@ -81,6 +81,7 @@ R/
   priori.R              # desenhos a custo igual + margem a priori (2018)
   validar-survey.R      # validação contra o survey e do custo realizado
   simulacao.R           # amostra oficial + Monte Carlo
+  secundarios.R         # brancos e nulos na amostra oficial (extra)
 dados/                  # secoes-sp-2022.csv, dicionario.csv
 resultados/             # amostra-oficial.rds, simulacao.rds (o .Rmd lê, não refaz)
 dados-brutos/           # não entregar; no .gitignore
@@ -95,6 +96,7 @@ Rscript R/preparar-dados.R
 Rscript R/priori.R
 Rscript R/validar-survey.R
 Rscript R/simulacao.R
+Rscript R/secundarios.R
 Rscript -e 'rmarkdown::render("relatorio.Rmd")'
 ```
 Rodar a partir da raiz. Só caminhos relativos.
@@ -121,7 +123,8 @@ Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o u
 
 ## Pendências para verificar adiante
 - Nenhuma. As três da etapa 6 (margens a priori, Neyman atrás da proporcional, EP do plano 4 igual ao da AAS) foram resolvidas no Monte Carlo; causas e números em `docs/registro.md` (2026-11-05).
-- Para o relatório (etapa 7): discutir a subcobertura do IC normal com poucas UPAs na curva de m (m = 3: 0,82).
+- Etapa 7: relatório escrito (aguarda revisão do grupo); faltam os slides (`slides/apresentacao.Rmd` → .pptx, fora do zip) e o teste do zip depois que nomes e RAs forem preenchidos.
+- Compilar fora do RStudio exige `RSTUDIO_PANDOC="C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools"` (o pandoc não está no PATH).
 
 ## Decisões tomadas
 - **Monte Carlo** (2026-11-05): 66 tarefas × B = 1.000 (grade 5 planos × 3 orçamentos × 3 cenários de custo + curva de m do plano 3 no orçamento 400). Um fluxo L'Ecuyer-CMRG por tarefa a partir de `SEMENTE` (resultado independe de `N_NUCLEOS`); a amostra oficial segue no gerador padrão. Saída: `resultados/simulacao.rds` (réplicas, `resumo`, `estabilidade`, diagnósticos). Figuras e tabelas finais ficam para a etapa 7.

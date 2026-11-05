@@ -226,3 +226,27 @@ fwrite(dicionario, ARQ_DICIONARIO)
 
 cat(sprintf("\nGravados: %s (%d linhas, %.1f MB) e %s (%d variáveis)\n",
             ARQ_SECOES, nrow(secoes), file.size(ARQ_SECOES) / 2^20, ARQ_DICIONARIO, nrow(dicionario)))
+
+# --- 6. Registro da preparação (lido pelo relatório) ---------------------------
+# Só o que depende dos arquivos brutos e não pode ser refeito a partir de dados/.
+dir.create(DIR_RESULTADOS, showWarnings = FALSE)
+preparacao <- list(
+  cargo = CARGO,
+  filtros = rbind(a22$filtros, a18$filtros),
+  secoes_variam_por_cargo = c(`2022` = a22$secoes_variam_por_cargo, `2018` = a18$secoes_variam_por_cargo),
+  municipios = c(tse = nrow(mun), casados_ibge = mun[!is.na(cod_ibge), .N],
+                 regioes = uniqueN(mun$cod_regiao_int)),
+  checagens = checagens,
+  # Totais de 2018 no arquivo completo (não só nas seções pareadas)
+  total_2018 = a18$dados[, .(secoes = .N, municipios = uniqueN(CD_MUNICIPIO),
+                             aptos = sum(QT_APTOS), abstencoes = sum(QT_ABSTENCOES))],
+  pareadas_2018 = secoes[pareada == TRUE, .N],
+  # Conferência externa com a tabela por município e zona
+  conf_total = conf_total,
+  munzona_secoes = mz[, .(principais = sum(QT_SECOES_PRINCIPAIS), agregadas = sum(QT_SECOES_AGREGADAS),
+                          nao_instaladas = sum(QT_SECOES_NAO_INSTALADAS), total = sum(QT_TOTAL_SECOES))],
+  munzona_zonas = c(base = por_zona[!is.na(aptos), .N], munzona = por_zona[!is.na(aptos_mz), .N],
+                    aptos_diferentes = por_zona[is.na(aptos) | is.na(aptos_mz) | aptos != aptos_mz, .N],
+                    abst_diferentes = por_zona[is.na(abst) | is.na(abst_mz) | abst != abst_mz, .N]))
+saveRDS(preparacao, file.path(DIR_RESULTADOS, "preparacao.rds"))
+cat("Gravado:", file.path(DIR_RESULTADOS, "preparacao.rds"), "\n")

@@ -1,6 +1,6 @@
 ---
-title: "Seu título"
-subtitle: "ME430 - Técnicas de Amostragem"
+title: "Qual plano amostral estima melhor a abstenção eleitoral com orçamento limitado?"
+subtitle: "ME430 - Técnicas de Amostragem · Seções eleitorais de São Paulo, 1º turno de 2022"
 author:
   - "Autor 1 - RA: 123456"
   - "Autor 2 - RA: 234567"
@@ -14,10 +14,12 @@ output:
     toc: true
     toc_float: true
 bibliography: referencias.bib
+lang: pt-BR
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = "center", out.width = "90%", dpi = 120)
 library(knitr)
 library(ggplot2)
 
@@ -28,122 +30,641 @@ source("R/config.R")
 set.seed(SEMENTE)
 ```
 
+```{r carregar, include=FALSE}
+# O relatório NÃO refaz sorteios nem a simulação: lê dados/ e resultados/,
+# gerados pelos scripts de R/ (ver Apêndice). As funções de R/ são carregadas
+# só para cálculos descritivos rápidos (fórmulas de planejamento, correlação
+# intraclasse); os blocos principais dos scripts não rodam com source().
+source("R/simulacao.R")   # carrega também planos.R, estimadores.R e priori.R
+library(data.table)
+
+d    <- carregar_secoes()
+qm   <- quadro_municipios(d)
+dic  <- fread(ARQ_DICIONARIO)
+prep <- readRDS(file.path(DIR_RESULTADOS, "preparacao.rds"))
+des  <- readRDS(file.path(DIR_RESULTADOS, "desenho.rds"))
+mp   <- fread(file.path(DIR_RESULTADOS, "margem-priori.csv"))
+of   <- readRDS(ARQ_AMOSTRA)
+sim  <- readRDS(ARQ_SIMULACAO)
+val  <- fread(file.path(DIR_RESULTADOS, "validacao-survey.csv"))
+sec  <- fread(file.path(DIR_RESULTADOS, "secundarios.csv"))
+
+# --- Formatação (padrão brasileiro: vírgula decimal, ponto de milhar) ---------
+num <- function(x, d = 0) formatC(x, format = "f", digits = d, big.mark = ".",
+                                  decimal.mark = ",")
+pct <- function(x, d = 2) num(100 * x, d)          # proporção -> % (ou p.p.)
+ic  <- function(a, b, d = 2) paste0("[", pct(a, d), "; ", pct(b, d), "]")
+virgula <- scales::label_number(decimal.mark = ",", big.mark = ".")  # eixos dos gráficos
+
+# Nomes curtos dos planos, na ordem fixa usada em tabelas e figuras
+ROTULOS <- c("1 AAS" = "1. AAS",
+             "2 Estrat. proporcional" = "2a. Estratificada proporcional",
+             "2 Estrat. Neyman" = "2b. Estratificada Neyman",
+             "3 Dois estágios" = "3. Dois estágios",
+             "4 Razão com auxiliar 2018" = "4. Razão com auxiliar 2018")
+rotulo <- function(p) factor(ROTULOS[p], levels = ROTULOS)
+CORES <- setNames(c("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"), ROTULOS)
+FORMAS <- setNames(c(16, 17, 15, 18, 4), ROTULOS)
+q975 <- qnorm(1 - (1 - CONF) / 2)
+```
+
+```{r numeros, include=FALSE}
+# --- População e quadro ---------------------------------------------------------
+N     <- nrow(d)
+N_mun <- uniqueN(d$cd_municipio_tse)
+X_tot <- sum(d$aptos); Y_tot <- sum(d$abstencoes)
+R0    <- of$gabarito$total; R0_par <- of$gabarito$pareado
+N_reg <- uniqueN(d$nm_regiao_int)
+cap   <- d[capital == TRUE]
+N_SP  <- nrow(cap); fatia_SP <- sum(cap$aptos) / X_tot
+fil   <- prep$filtros
+t18   <- prep$total_2018
+R18_tot <- t18$abstencoes / t18$aptos
+mz    <- prep$munzona_secoes
+
+# --- Pareamento 2018 <-> 2022 -----------------------------------------------------
+par   <- d[pareada == TRUE]; sem <- d[pareada == FALSE]
+pct_sec_par  <- nrow(par) / N
+pct_apt_par  <- sum(par$aptos) / X_tot
+pct_2018_par <- prep$pareadas_2018 / t18$secoes
+sem_mun      <- sem[, .N, by = nm_municipio][order(-N)]
+R_sem        <- sum(sem$abstencoes) / sum(sem$aptos)
+
+# --- Orçamentos e custo (cenário central) -------------------------------------------
+chave <- function(n, r = RAZAO_C1_C2) sprintf("c%d_n%d", r, n)
+orc   <- sapply(N_AAS_ORCAMENTO, function(n) des[[chave(n)]]$orcamento)
+munic_aas_ref <- n_munic_esperado_aas(qm$Ni, N_AAS_REFERENCIA)
+d_ref <- des[[chave(N_AAS_REFERENCIA)]]
+p3_ref <- d_ref$plano3_escolhido
+
+# --- Proxy de 2018 (seções pareadas) e estratos ---------------------------------------
+pp18 <- proxy_2018(d)
+pp22 <- populacao_2022(d)
+r2 <- function(v, g) { m <- ave(v, g); sum((m - mean(v))^2) / sum((v - mean(v))^2) }
+pp18_pos <- pp18[x > 0]
+r2_taxa18 <- r2(pp18_pos$y / pp18_pos$x, pp18_pos$regiao)
+r2_d18    <- r2(pp18$dd, pp18$regiao)
+# Ganho da estratificada proporcional sobre a AAS (n = referência, 2018), com e
+# sem a capital como estrato próprio
+razao_estrat <- function(pp, n = N_AAS_REFERENCIA) {
+  Nh <- pp[, .N, by = regiao]; Nh <- setNames(Nh$N, Nh$regiao)
+  var_priori_estrat(pp, alocar(n, Nh, Nh)) / var_priori_aas(pp, n)
+}
+g_reg <- razao_estrat(pp18)
+pp18c <- copy(pp18)[capital == TRUE, regiao := "Capital"]
+g_cap <- razao_estrat(pp18c)
+
+# --- Correlação intraclasse e variabilidade 2018 x 2022 ------------------------------
+icc22 <- sim$icc_plano3$rho
+icc18 <- icc_anova(pp18[capital == FALSE]$dd, pp18[capital == FALSE]$cd_municipio_tse)$rho
+sd_d18 <- sd(pp18$dd); sd_d22 <- sd(pp22$dd)
+
+# --- Amostra oficial -------------------------------------------------------------------
+tab_of <- of$tabela
+ofp <- function(p, a = "total") tab_of[plano == p & gabarito_usado == a]
+
+# --- Monte Carlo -----------------------------------------------------------------------
+res <- sim$resumo
+grade <- res[grupo == "grade"]
+cen   <- grade[razao_c1_c2 == RAZAO_C1_C2]
+cen_t <- cen[alvo == "total"]
+curva <- res[grupo == "curva_m"]
+efic3 <- grade[plano == "3 Dois estágios" & alvo == "total"]
+p4p   <- grade[plano == "4 Razão com auxiliar 2018" & alvo == "pareado"]
+p4t   <- grade[plano == "4 Razão com auxiliar 2018" & alvo == "total"]
+p123  <- grade[plano != "4 Razão com auxiliar 2018"]
+estrat_cen <- cen_t[plano %in% c("2 Estrat. proporcional", "2 Estrat. Neyman")]
+dn  <- sim$diag_neyman[n_ref == N_AAS_REFERENCIA]
+dn[, dif := nh_neyman - nh_prop]
+dn_mais <- dn[which.max(dif)]
+d4  <- sim$diag_plano4
+est <- sim$estabilidade
+est_w <- dcast(est[b %in% c(B / 2, B)], id ~ b, value.var = "eqm_acum")
+setnames(est_w, c("id", "meio", "fim"))
+desvio_meio <- max(abs(est_w$meio / est_w$fim - 1))
+custo_desvio <- max(abs(res$custo_medio / res$orcamento - 1))
+limiar_cob <- 0.94   # cobertura considerada "perto do nominal" na curva de m
+m_ok <- curva[cobertura >= limiar_cob, min(m)]
+```
+
+# Resumo {-}
+
+Com o cadastro completo das `r num(N)` seções eleitorais do estado de São Paulo no 1º turno de 2022, comparamos, **a custo igual**, quatro planos amostrais para estimar a taxa de abstenção $R$ (abstenções / eleitores aptos): amostragem aleatória simples (AAS), amostragem estratificada por região (alocação proporcional e de Neyman), amostragem em dois estágios (municípios e seções) e um estimador de razão que usa a abstenção de 2018 como variável auxiliar. A população completa serve de gabarito: $R$ = `r pct(R0, 3)`%.
+
+Em `r num(sim$B)` réplicas de Monte Carlo por cenário, o plano em **dois estágios** teve o menor erro quadrático médio em todos os orçamentos. No cenário central de custo, o EQM da AAS no mesmo orçamento foi de `r num(min(efic3[razao_c1_c2 == RAZAO_C1_C2]$eficiencia_custo), 2)` a `r num(max(efic3[razao_c1_c2 == RAZAO_C1_C2]$eficiencia_custo), 2)` vezes o do plano em dois estágios. A estratificação por região não trouxe ganho perceptível, e o auxiliar de 2018 não melhorou a precisão. Além disso, ele só existe para `r pct(pct_sec_par, 1)`% das seções, o que gera viés de cobertura. Na amostra oficial (orçamento de referência), o plano em dois estágios estimou $\hat R$ = `r pct(ofp("3 Dois estágios")$R, 2)`%, com IC de `r 100 * CONF`% igual a `r ic(ofp("3 Dois estágios")$ic_inf, ofp("3 Dois estágios")$ic_sup)`%.
+
 # Planejamento Metodológico
 
+O planejamento segue a sequência de decisões de um plano amostral e os itens mínimos de um relatório de pesquisa descritos em @bolfarine2005 (seções 1.6 a 1.10).
 
 ## Definição do Problema
 
 <!-- *	Qual a pergunta de interesse? O que será estimado neste projeto? -->
-<!-- *	Qual a população a ser amostrada?  (Defina explicitamente o critério de inclusão de uma UE na população alvo e na população amostrada. Se você planeja coletar a amostra ao longo do tempo, não se esqueça de incluir a data/período na sua definição de população alvo e na população amostrada.  Por exemplo, pessoas visitando uma loja num período de dois dias.)  -->
+<!-- *	Qual a população a ser amostrada? (critério de inclusão na população alvo e amostrada, com data/período) -->
 <!-- *	Qual é a UE desse projeto?  -->
 <!-- *	Quais medidas/informações da UEs serão coletadas?  -->
-<!-- *	Baseando-se no “custo” do seu tamanho amostral (tempo disponível do seu grupo para amostragem e coleta de dados), qual seria um tamanho de amostra factível? Qual margem de erro você espera para suas estimativas?  -->
+<!-- *	Tamanho de amostra factível pelo custo e margem de erro esperada -->
 
-## Delineamento Amostral
+**Pergunta de interesse.** Se obter os dados de cada seção eleitoral tivesse um custo e o orçamento fosse limitado, qual plano amostral estimaria melhor a **taxa de abstenção no 1º turno da eleição de 2022 no estado de São Paulo**? O parâmetro principal é
+
+$$
+R = \frac{Y}{X} = \frac{\sum_{i=1}^{N} y_i}{\sum_{i=1}^{N} x_i},
+$$
+
+em que $y_i$ é o número de abstenções e $x_i$ o de eleitores aptos na seção $i$. Como parâmetros secundários (apresentados só em tabela), estimamos a proporção de votos brancos e de votos nulos para Governador sobre o comparecimento.
+
+**Por que amostrar uma população conhecida.** Os dados do Tribunal Superior Eleitoral (TSE) estão disponíveis para todas as seções. Usamos esse fato para montar um **cenário controlado**, como prevê o enunciado: supomos que obter os dados de cada seção tem custo e que só o orçamento limita a amostra. A população completa é o **gabarito** contra o qual comparamos as estimativas. O trabalho é metodológico e politicamente neutro, e nenhum candidato ou partido é analisado. Os dados são públicos e agregados por seção, **sem dados pessoais**.
+
+**População-alvo.** Todas as seções eleitorais do estado de São Paulo na eleição de 02/10/2022 (1º turno).
+
+**Sistema de referência (quadro).** O arquivo "Detalhe da votação por seção" de 2022, do Portal de Dados Abertos do TSE. Ele tem uma linha por seção, cargo e turno.
+
+**População amostrada.** As seções do quadro que passam pelos filtros UF = SP, turno = 1 e cargo = `r prep$cargo`. O filtro de cargo serve só para deixar uma linha por seção: em nenhuma seção aptos, comparecimento ou abstenções mudam entre os quatro cargos do 1º turno (`r num(prep$secoes_variam_por_cargo[["2022"]])` seções com diferença). A Tabela \@ref(tab:tab-filtros) mostra quantas linhas e seções restam a cada filtro, em 2022 e em 2018 (ano do auxiliar). A população amostrada tem $N = `r num(N)`$ seções em `r num(N_mun)` municípios, com `r num(X_tot)` eleitores aptos.
+
+```{r tab-filtros}
+f <- copy(fil)
+f[, passo := factor(passo, levels = c("bruto", "uf_sp", "turno1", "cargo"),
+                    labels = c("Arquivo de SP completo", "UF = SP", "1º turno",
+                               paste("Cargo =", prep$cargo)))]
+fw <- dcast(f, passo ~ ano, value.var = c("linhas", "secoes"))
+fw <- fw[, .(passo, num(linhas_2022), num(secoes_2022), num(linhas_2018), num(secoes_2018))]
+kable(fw, col.names = c("Filtro", "Linhas 2022", "Seções 2022", "Linhas 2018", "Seções 2018"),
+      align = "lrrrr",
+      caption = "Linhas e seções distintas restantes após cada filtro aplicado ao arquivo do TSE (São Paulo).")
+```
+
+**Unidade elementar (UE) e unidade amostral.** A seção eleitoral, cujo registro no arquivo do TSE é a unidade respondente. Na prática a UE é a **seção principal**: segundo outra tabela do TSE (votação por município e zona), São Paulo teve `r num(mz$agregadas)` seções agregadas em 2022, que não têm linha própria no arquivo por seção porque seus eleitores são contados na seção principal. Os totais de aptos e abstenções não mudam com isso (Seção \@ref(coleta-de-dados)).
+
+**Informações coletadas por UE.** A Tabela \@ref(tab:tab-dicionario) descreve as variáveis: aptos, comparecimento e abstenções de 2022; brancos e nulos (parâmetros secundários); município, zona e região (para o desenho); e aptos e abstenções de 2018 na mesma seção (auxiliar). O auxiliar de 2018 vem do pareamento pela chave município + zona + seção. Foram pareadas `r pct(pct_sec_par)`% das seções de 2022 (`r pct(pct_apt_par)`% do eleitorado) e `r pct(pct_2018_par)`% das de 2018.
+
+```{r tab-dicionario}
+kable(dic, col.names = c("Variável", "Descrição", "Unidade", "Origem"),
+      caption = "Dicionário de variáveis da base de seções (dados/secoes-sp-2022.csv).")
+```
+
+**Custo e tamanho da amostra.** Comparar planos com o mesmo $n$ favoreceria os planos que espalham a amostra por muitos municípios. Por isso os planos são comparados **com o mesmo custo esperado**. Supomos que o custo de uma amostra é
+
+$$
+C = c_1 \cdot (\text{nº de municípios distintos na amostra}) + c_2 \cdot (\text{nº de seções}),
+$$
+
+com $c_1 > c_2$. A hipótese é que cada município exige um deslocamento ou contato próprio, enquanto uma seção a mais num município já visitado é barata. No cenário central, $c_2 = `r C2`$ e $c_1 = `r C1`$: visitar um município custa o mesmo que obter `r RAZAO_C1_C2` seções. Como sensibilidade, usamos $c_1/c_2 \in \{`r paste(RAZOES_SENSIBILIDADE, collapse = ", ")`\}$. O **orçamento** é o custo esperado de uma AAS de $n = `r paste(N_AAS_ORCAMENTO, collapse = "$, $")`$ seções, e o de referência corresponde a $n = `r N_AAS_REFERENCIA`$. Numa AAS de $n$ seções, o número esperado de municípios distintos é
+
+$$
+E[\text{municípios}] = \sum_{i=1}^{`r N_mun`} \left[ 1 - \binom{N - N_i}{n} \Big/ \binom{N}{n} \right],
+$$
+
+em que $N_i$ é o número de seções do município $i$. No cenário central, os orçamentos são `r paste(num(orc, 1), collapse = ", ")` unidades de custo. A AAS de referência toca em média `r num(munic_aas_ref, 0)` municípios. Os demais planos têm o tamanho ajustado para ter o mesmo custo esperado (Seção \@ref(delineamento)).
+
+**Margem de erro esperada (a priori).** Antes de olhar os dados de 2022, calculamos a margem de erro de `r 100 * CONF`% (`r num(q975, 2)` × erro-padrão) de cada desenho com as fórmulas de variância de planejamento da Seção \@ref(protocolo). Como variabilidade usamos a de **2018** nas seções pareadas ($y$ = abstenções de 2018, $x$ = aptos de 2018). A Tabela \@ref(tab:tab-desenho-priori) mostra os tamanhos a custo igual e essas margens. No orçamento de referência, a margem esperada fica perto de `r pct(mp[razao_c1_c2 == RAZAO_C1_C2 & n_ref == N_AAS_REFERENCIA & plano == "1 AAS", margem], 2)` p.p. na AAS e de `r pct(p3_ref$margem, 2)` p.p. no plano em dois estágios. O plano 4 não tem margem a priori: com o proxy de 2018, a variável de interesse e o auxiliar seriam a mesma variável.
+
+```{r tab-desenho-priori}
+linhas_des <- rbindlist(lapply(N_AAS_ORCAMENTO, function(n) {
+  ds <- des[[chave(n)]]
+  mm <- mp[razao_c1_c2 == RAZAO_C1_C2 & n_ref == n]
+  mun <- function(custo, sec) (custo - ds$c2 * sec) / ds$c1
+  p3 <- ds$plano3_escolhido
+  data.table(
+    Orçamento = paste0(num(ds$orcamento, 1), " (AAS n = ", n, ")"),
+    Plano = ROTULOS,
+    Desenho = c(paste("n =", ds$aas$n), paste("n =", ds$proporcional$n),
+                paste("n =", ds$neyman$n),
+                sprintf("m = %d, k = %d, k_SP = %d", p3$m, p3$k, p3$k_SP),
+                paste("n =", ds$plano4$n, "(pareadas)")),
+    Seções = num(c(ds$aas$n, ds$proporcional$n, ds$neyman$n, p3$secoes_esperadas, ds$plano4$n)),
+    Municípios = num(c(mun(ds$aas$custo, ds$aas$n), mun(ds$proporcional$custo, ds$proporcional$n),
+                       mun(ds$neyman$custo, ds$neyman$n), p3$munic_esperados,
+                       mun(ds$plano4$custo, ds$plano4$n)), 0),
+    Margem = c(pct(mm[plano == "1 AAS", margem]), pct(mm[plano == "2 Estrat. proporcional", margem]),
+               pct(mm[plano == "2 Estrat. Neyman", margem]), pct(p3$margem), "—"))
+}))
+kable(linhas_des, align = "lllrrr",
+      col.names = c("Orçamento", "Plano", "Desenho", "Seções (esperadas)",
+                    "Municípios (esperados)", "Margem a priori (p.p.)"),
+      caption = paste0("Desenhos a custo igual (c1/c2 = ", RAZAO_C1_C2,
+                       ") e margem de erro a priori de ", 100 * CONF,
+                       "%, calculada com a variabilidade de 2018 nas seções pareadas. ",
+                       "No plano 3, m é o número de sorteios de municípios fora da capital, ",
+                       "k o de seções por sorteio e k_SP o de seções da capital."))
+```
+
+## Delineamento Amostral {#delineamento}
 
 <!-- *	Descreva seu plano amostral proposto de maneira concisa.  -->
-<!-- *	Estratificação será empregada para seleção da amostra? Se sim, como e com qual propósito? -->
-<!-- *	Utilizará amostra por conglomerados?  Quantos estágios? -->
+<!-- *	Estratificação será empregada? Como e com qual propósito? -->
+<!-- *	Utilizará amostra por conglomerados? Quantos estágios? -->
 <!-- *	Defina a UE e como ela será selecionada. -->
-<!-- *	A probabilidade de amostragem será a mesma para cada UE da amostra? Caso não seja, descreva como calcular a probabilidade de seleção para cada UE.  -->
-<!-- *	Qual o tamanho da amostra e como ela será alocada entre os estratos e estágios amostrais? No que você se baseará para fazer as decisões de alocação da amostra? -->
+<!-- *	A probabilidade de amostragem será a mesma para cada UE? Como calcular? -->
+<!-- *	Tamanho da amostra e alocação entre estratos e estágios; base das decisões -->
 
-## Protocolo de Coleta e Métodos de Estimação
+Comparamos quatro planos, um deles com duas alocações, sempre com o mesmo custo esperado. Em todos a UE é a seção. Para todos os planos, o total de aptos de 2022 é tratado como conhecido do quadro (o plano 3 usa os aptos como medida de tamanho).
+
+1. **AAS de seções:** $n$ seções sorteadas sem reposição entre as $N$ do quadro.
+2. **Estratificada por região:** os estratos são as `r N_reg` regiões geográficas intermediárias do IBGE. Em cada estrato sorteia-se uma AAS de $n_h$ seções, com alocação **proporcional** ($n_h \propto N_h$, plano 2a) ou de **Neyman** ($n_h \propto N_h S_h$, plano 2b).
+3. **Conglomerados em dois estágios:** municípios como unidades primárias (UPAs) e seções como unidades secundárias.
+4. **Estimador de razão com auxiliar de 2018:** AAS de seções no subconjunto pareado, usando o total conhecido de abstenções de 2018.
+
+**Estratificação.** Escolhemos as regiões intermediárias por ser uma divisão oficial e por garantir que a amostra se espalhe pelo estado. A esperança era de que a abstenção variasse mais entre regiões do que dentro delas. Com os dados de 2018 isso não se confirmou: a região explica só `r pct(r2_taxa18, 1)`% da variação da taxa de abstenção por seção e `r pct(r2_d18, 1)`% da variação do resíduo $d_i = y_i - R_{2018}\,x_i$, que é o que importa para a variância do estimador de razão. Com $n = `r N_AAS_REFERENCIA`$, a variância da proporcional seria `r num(g_reg, 3)` vez a da AAS. Separar a capital como estrato próprio quase não mudaria isso (`r num(g_cap, 3)`), por isso não o fizemos. Para a Neyman, $S_h$ é o desvio-padrão de $d_i$ em 2018 no estrato, e **nunca** o de 2022. Cada estrato recebe pelo menos duas seções. A Tabela \@ref(tab:tab-estratos) mostra os estratos e as alocações no orçamento de referência.
+
+```{r tab-estratos}
+r18 <- pp18[, .(R18 = sum(y) / sum(x)), by = regiao]
+apt <- d[, .(aptos = sum(aptos)), by = .(regiao = nm_regiao_int)]
+te <- merge(merge(dn, r18, by = "regiao"), apt, by = "regiao")[order(-Nh)]
+kable(te[, .(regiao, num(Nh), num(municipios), pct(aptos / X_tot, 1), pct(R18, 2),
+             num(Sh_2018, 1), nh_prop, nh_neyman)],
+      col.names = c("Região intermediária", "Seções (N_h)", "Municípios", "% dos aptos 2022",
+                    "Abstenção 2018 (%)", "S_h 2018", "n_h proporcional", "n_h Neyman"),
+      align = "lrrrrrrr",
+      caption = paste0("Estratos do plano 2 e alocação no orçamento de referência (AAS n = ",
+                       N_AAS_REFERENCIA, ", c1/c2 = ", RAZAO_C1_C2,
+                       "). S_h é o desvio-padrão de d = z - R2018 · aptos2018 nas seções pareadas."))
+```
+
+**Conglomerados em dois estágios (plano 3).** Como o custo depende do número de municípios distintos, sortear municípios e várias seções dentro de cada um reduz o custo por seção e permite comprar mais seções. A desvantagem é a correlação entre seções do mesmo município.
+
+- **Capital autorrepresentativa.** O município de São Paulo tem `r pct(fatia_SP, 1)`% dos aptos de 2022. Num sorteio com probabilidade proporcional ao tamanho (PPT), ele seria sorteado várias vezes. Por isso entra **com certeza** ($\pi = 1$ no 1º estágio), e dele se sorteia uma AAS de $k_{SP}$ das suas `r num(N_SP)` seções.
+- **Demais `r num(N_mun - 1)` municípios, 1º estágio.** $m$ sorteios **PPT com reposição**, com $p_i = M_i / M$, em que $M_i$ é o número de aptos de 2022 do município $i$ e $M$ o total fora da capital.
+- **2º estágio.** Em cada sorteio $j$, uma AAS de $k_j = \min(k, N_i)$ seções do município sorteado, independente das outras vezes em que o mesmo município saiu. O custo $c_1$ é cobrado uma vez por município distinto.
+- **Escolha de $(m, k, k_{SP})$.** Para cada $m$, escolhe-se o $k$ que deixa a fração de seções da capital mais perto da sua fração de aptos (tolerância de `r pct(formals(grade_plano3)$tol, 0)` p.p.), e $k_{SP}$ absorve o restante do orçamento. Entre os pares viáveis, adotamos o de **menor margem a priori** (2018). No orçamento de referência, o resultado foi $m = `r p3_ref$m`$, $k = `r p3_ref$k`$ e $k_{SP} = `r p3_ref$k_SP`$, com `r num(p3_ref$secoes_esperadas)` seções esperadas em `r num(p3_ref$munic_esperados)` municípios. A AAS de mesmo custo tem `r d_ref$aas$n` seções.
+
+**Plano 4.** É uma AAS de $n$ seções entre as `r num(nrow(par))` seções pareadas, com estimador de razão no auxiliar $z_i$ (abstenções de 2018). Vale distinguir os dois usos da palavra "razão": o **parâmetro** $R$ já é uma razão de totais e todos os planos o estimam por uma razão; no plano 4, "razão" se refere ao uso do **auxiliar** $z$ para estimar o total $Y$. As seções sem par em 2018 não podem ser sorteadas nesse plano, o que é um erro de cobertura (Seção \@ref(coleta-de-dados)).
+
+**Probabilidades de seleção e pesos.** A probabilidade de seleção é a mesma para todas as seções só na AAS e no plano 4. A Tabela \@ref(tab:tab-probabilidades) dá a probabilidade de inclusão $\pi_i$ e o peso $w_i = 1/\pi_i$ de cada plano.
+
+```{r tab-probabilidades}
+tp <- data.frame(
+  Plano = unname(ROTULOS),
+  pi = c("$\\pi_i = n/N$", "$\\pi_{hi} = n_h/N_h$", "$\\pi_{hi} = n_h/N_h$ ($n_h \\propto N_h S_h$)",
+         "capital: $\\pi_i = k_{SP}/N_{SP}$; demais: $\\pi_{ij} \\approx m\\,p_i\\,k_j/N_i$",
+         "$\\pi_i = n/N_{par}$ (zero fora do pareado)"),
+  peso = c("$N/n$", "$N_h/n_h$", "$N_h/n_h$", "$N_{SP}/k_{SP}$; $N_i/(m\\,p_i\\,k_j)$", "$N_{par}/n$"),
+  igual = c("Sim", "Não (por estrato)", "Não (por estrato)", "Não", "Sim (no pareado)"))
+kable(tp, col.names = c("Plano", "Probabilidade de inclusão", "Peso", "Igual para todas?"),
+      escape = FALSE,
+      caption = "Probabilidades de inclusão e pesos de cada plano. No plano 3, fora da capital, m p_i k_j / N_i é o número esperado de vezes que a seção é sorteada (com reposição no 1º estágio), e o peso coincide com o de Hansen–Hurwitz.")
+```
+
+**Tamanho e alocação.** Os tamanhos não são escolhidos para atingir uma margem fixa, e sim para gastar o mesmo orçamento esperado (Tabela \@ref(tab:tab-desenho-priori)). A alocação entre estratos segue a regra proporcional ou de Neyman, e a divisão entre os estágios do plano 3 segue a menor margem a priori. Todas essas decisões usam só o quadro e os dados de 2018.
+
+## Protocolo de Coleta e Métodos de Estimação {#protocolo}
 
 <!-- *	Como as observações serão coletadas?  -->
-<!-- *	Descreva seu método de estimação do(s) parâmetro(s) populacional e da variância associada às estimativas. -->
+<!-- *	Método de estimação do(s) parâmetro(s) e da variância associada -->
 
-Aqui um exemplo citando @bolfarine2005.
+**Coleta.** O instrumento de coleta é o script de extração. Primeiro o plano sorteia as linhas do quadro usando só informações de desenho (município, região, aptos). Depois a função `coletar()` busca na base os valores de $y_i$, $x_i$ e $z_i$ das seções sorteadas. Não há entrevistas nem medição em campo. Como os dados estão publicados para todas as seções, também não há não resposta.
 
+**Estimação.** Usamos a notação $y_i$ = abstenções de 2022, $x_i$ = aptos de 2022, $z_i$ = abstenções de 2018, $f = n/N$ e $w_i = 1/\pi_i$. Em todos os planos,
+
+$$
+\hat R = \frac{\hat Y}{\hat X} = \frac{\sum_{i \in s} w_i y_i}{\sum_{i \in s} w_i x_i},
+$$
+
+e a variância vem da **linearização de Taylor**: com $d_i = y_i - \hat R x_i$, $\widehat{\mathrm{Var}}(\hat R) = \widehat{\mathrm{Var}}\big(\sum_{i\in s} w_i d_i\big) / \hat X^2$, em que a variância do total linearizado é calculada pela fórmula do plano. O intervalo de confiança de `r 100 * CONF`% é $\hat R \pm z\,\widehat{\mathrm{EP}}(\hat R)$, com $z$ = `r num(q975, 2)`. Estimador de razão e linearização seguem @bolfarine2005 e @cochran1977.
+
+- **Plano 1 (AAS):**
+$$
+\hat R = \frac{\bar y}{\bar x}, \qquad
+\widehat{\mathrm{Var}}(\hat R) = \frac{(1-f)\, s_d^2}{n\, \bar x^2}, \qquad
+s_d^2 = \frac{1}{n-1}\sum_{i\in s} (d_i - \bar d)^2 .
+$$
+
+- **Plano 2 (estratificada, estimador de razão combinado):**
+$$
+\hat R = \frac{\sum_h N_h \bar y_h}{\sum_h N_h \bar x_h}, \qquad
+\widehat{\mathrm{Var}}(\hat R) = \frac{1}{\hat X^2}\sum_{h} N_h^2 (1-f_h)\frac{s_{d,h}^2}{n_h},
+$$
+com $\hat X = \sum_h N_h \bar x_h$, $f_h = n_h/N_h$ e $s_{d,h}^2$ a variância amostral de $d_i$ no estrato $h$.
+
+- **Plano 3 (dois estágios, Hansen–Hurwitz fora da capital):** na capital, $\hat Y_c = N_{SP}\,\bar y_c$ e $\hat X_c = N_{SP}\,\bar x_c$. Fora dela, para o sorteio $j$ (município $i$), $\hat Y_j = \frac{N_i}{k_j}\sum_{l \in s_j} y_l$ (e $\hat X_j$ análogo), e
+$$
+\hat Y_o = \frac{1}{m}\sum_{j=1}^m \frac{\hat Y_j}{p_j}, \qquad
+\hat R = \frac{\hat Y_c + \hat Y_o}{\hat X_c + \hat X_o}.
+$$
+A variância soma as duas partes, cujos sorteios são independentes:
+$$
+\widehat{\mathrm{Var}}(\hat R) = \frac{1}{\hat X^2}\left[ N_{SP}^2\Big(1 - \frac{k_{SP}}{N_{SP}}\Big)\frac{s_{d,c}^2}{k_{SP}} + \frac{1}{m(m-1)}\sum_{j=1}^m \Big(\frac{\hat D_j}{p_j} - \overline{\hat D/p}\Big)^2 \right],
+\qquad \hat D_j = \hat Y_j - \hat R \hat X_j .
+$$
+
+- **Plano 4 (razão com auxiliar, no subconjunto pareado):** com $Z$ e $X_{par}$ conhecidos (totais de abstenções de 2018 e de aptos de 2022 nas seções pareadas),
+$$
+\hat Y_R = \frac{\bar y}{\bar z}\, Z, \qquad \hat R_4 = \frac{\hat Y_R}{X_{par}}, \qquad
+\widehat{\mathrm{Var}}(\hat R_4) = \frac{1}{X_{par}^2}\Big(\frac{Z}{\bar z}\Big)^2 (1-f)\,\frac{s_e^2}{n},
+\quad e_i = y_i - \frac{\bar y}{\bar z} z_i .
+$$
+O alvo natural de $\hat R_4$ é o $R$ do subconjunto pareado, e a diferença para o $R$ de todas as seções é erro de cobertura.
+
+**"Erro técnico" no plano 3.** O 1º estágio é **com reposição**, para usar o estimador de Hansen–Hurwitz e sua variância simples. Para o desenho de fato sorteado (com reposição) o estimador é não viesado. A aproximação está em duas coisas:
+
+- a fórmula ignora a correção de população finita do 1º estágio, o que tende a superestimar um pouco a variância se o sorteio for feito sem reposição na prática;
+- a probabilidade de inclusão $m\,p_i\,k_j/N_i$ é o número esperado de seleções, e não uma probabilidade exata.
+
+O Monte Carlo (Seção \@ref(analise)) mede o tamanho dessa distorção.
+
+**Validação das fórmulas.** As funções próprias de estimação foram comparadas com o pacote `survey` numa amostra de cada plano. A Tabela \@ref(tab:tab-validacao-survey) mostra que estimativas e erros-padrão coincidem até o erro de arredondamento da máquina. No `survey`, o plano 3 foi declarado como dois estratos: a capital, com correção de população finita, e os demais municípios, com cada sorteio como UPA e fração amostral zero (com reposição).
+
+```{r tab-validacao-survey}
+kable(val[, .(plano, pct(R_proprio, 4), pct(R_survey, 4), pct(ep_proprio, 4), pct(ep_survey, 4),
+              ifelse(abs(dif_rel_ep) < 1e-12, "< 10⁻¹²", sub(".", ",", formatC(dif_rel_ep, format = "e", digits = 1), fixed = TRUE)))],
+      col.names = c("Plano (amostra de validação)", "R̂ próprio (%)", "R̂ survey (%)",
+                    "EP próprio (p.p.)", "EP survey (p.p.)", "Diferença relativa do EP"),
+      align = "lrrrrr",
+      caption = "Validação das funções de estimação contra o pacote survey (uma amostra de validação por plano, orçamento de referência). No plano 3 a validação usou um desenho com poucas UPAs (m = 10), caso mais exigente para a fórmula do que o desenho final.")
+```
 
 # Execução e Resultados
-
 
 ## Amostragem
 
 <!-- *	Quais os passos do procedimento que você acabou realmente utilizando para coletar sua amostra? -->
 <!-- *	Como esses procedimentos diferem (se for o caso) do plano amostral proposto originalmente? -->
-<!-- *	Você encontrou problemas ao coletar os dados?  Se sim, descreva brevemente como você lidou com esses problemas. -->
+<!-- *	Você encontrou problemas ao coletar os dados? Como lidou com eles? -->
 
+**Passos executados.**
 
-## Coleta de Dados
+1. Download dos arquivos do TSE (2022 e 2018), aplicação dos filtros (Tabela \@ref(tab:tab-filtros)), checagens de consistência e pareamento com 2018 (`R/preparar-dados.R`).
+2. Dimensionamento de todos os desenhos a custo igual e cálculo das margens a priori com 2018 (`R/priori.R`).
+3. Validação das funções contra o `survey` e do custo esperado contra o custo realizado (`R/validar-survey.R`).
+4. **Amostra oficial:** um sorteio por plano no orçamento de referência e no cenário central de custo, com a semente `r SEMENTE` (`R/simulacao.R`). Os parâmetros secundários foram estimados nas mesmas seções (`R/secundarios.R`).
+5. **Monte Carlo:** `r num(sim$B)` réplicas de cada uma de `r nrow(sim$tarefas)` combinações (`r length(PLANOS)` desenhos × `r length(N_AAS_ORCAMENTO)` orçamentos × `r length(RAZOES_SENSIBILIDADE)` cenários de custo, mais `r nrow(curva)` pares $(m, k)$ do plano 3 no orçamento de referência). Cada combinação tem um fluxo próprio de números aleatórios (L'Ecuyer-CMRG) derivado da mesma semente, e por isso o resultado não depende do número de processos paralelos.
+
+O custo médio realizado ficou a no máximo `r pct(custo_desvio, 1)`% do orçamento em todas as combinações do Monte Carlo, o que confirma que os planos foram comparados a custo igual.
+
+**Diferenças em relação ao plano original.** Todas foram anotadas no diário de decisões no momento em que ocorreram:
+
+- **UE como seção principal:** as seções agregadas não têm linha própria no arquivo por seção.
+- **Capital autorrepresentativa no plano 3:** não estava no plano inicial e foi adotada para evitar que ela fosse sorteada várias vezes no PPT.
+- **Grade de $m$ ampliada:** com a grade original, o melhor $m$ a priori ficava no limite. A grade passou a ir até $m = `r max(eval(formals(grade_plano3)$ms))`$, e a tolerância da fração da capital foi ampliada para `r pct(formals(grade_plano3)$tol, 0)` p.p., porque o $k$ inteiro abria buracos na grade.
+- **Plano 4 restrito ao subconjunto pareado:** só foi possível depois do teste de pareamento, que deixou `r pct(1 - pct_sec_par)`% das seções sem auxiliar.
+- **Capital fora da estratificação:** a ideia de tratá-la como estrato próprio foi descartada pelo ganho desprezível.
+
+**Problemas encontrados.** Houve dois:
+
+- **Seções sem par em 2018** (`r num(nrow(sem))` seções em `r num(uniqueN(sem$cd_municipio_tse))` municípios; o município com mais seções sem par é `r tools::toTitleCase(tolower(sem_mun$nm_municipio[1]))`, com `r num(sem_mun$N[1])`). Foram tratadas como falha de cobertura do auxiliar, sem imputação.
+- **Grafia de um município:** "São Luís do Paraitinga" no TSE e "São Luiz do Paraitinga" no IBGE. Foi corrigida com uma exceção no código, e todos os `r num(prep$municipios[["tse"]])` municípios foram associados à sua região.
+
+## Coleta de Dados {#coleta-de-dados}
 
 <!-- *	Como as observações/medidas foram feitas na amostra coletada? -->
-<!-- *	Houve algum problema de medição? Se sim, como você lidou com esses problemas? -->
-<!-- *	Quais suas considerações sobre o efeito de erros não amostrais na sua pesquisa? -->
+<!-- *	Houve algum problema de medição? Como lidou? -->
+<!-- *	Considerações sobre o efeito de erros não amostrais -->
 
-## Análise e Estimativas Obtidas
+**Como as medidas foram obtidas.** Os valores vêm diretamente dos registros do TSE, que são a apuração oficial dos boletins de urna. A "coleta" de uma seção sorteada é a leitura da sua linha na base preparada. Antes de qualquer sorteio, rodamos as checagens da Tabela \@ref(tab:tab-consistencia) e conferimos os totais com outra tabela do TSE (votação por município e zona). Os totais de aptos, comparecimento e abstenções coincidem, e nenhuma das `r num(prep$munzona_zonas[["base"]])` combinações município-zona difere. A única diferença está na contagem de seções: as `r num(mz$agregadas)` agregadas não têm linha própria.
 
-<!-- *	Como o(s) parâmetro(s) populacional foi (foram) estimado(s) (apresente a fórmula exata utilizada)? -->
-<!-- *	Como você estimou a variância associada à(s) estimativa(s) (apresente a fórmula exata utilizada)? -->
+```{r tab-consistencia}
+ck <- prep$checagens[, .(checagem, valor = num(valor))]
+rot_med <- c(aptos = "aptos", comparecimento = "comparecimento", abstencoes = "abstenções", secoes = "seções")
+ct <- prep$conf_total[, .(checagem = paste0("Total de ", rot_med[medida], ": base × tabela munzona"),
+                          valor = paste0(num(base), " × ", num(munzona)))]
+kable(rbind(ck, ct), col.names = c("Checagem", "Resultado"), align = "lr",
+      caption = "Checagens de consistência da base de seções de 2022 e conferência externa com a tabela do TSE por município e zona (Governador, 1º turno).")
+```
+
+**Problemas de medição.** Nenhuma checagem acusou violação. Um erro de medição no próprio registro do TSE (por exemplo, um boletim digitado errado) não seria detectável aqui, porque o gabarito sai da mesma base.
+
+**Erros não amostrais.** A Tabela \@ref(tab:tab-erros-nao-amostrais) organiza os erros não amostrais pela etapa em que ocorrem, sua causa, a correção adotada e o efeito, como sugere @bolfarine2005.
+
+```{r tab-erros-nao-amostrais}
+vies4 <- p4t[razao_c1_c2 == RAZAO_C1_C2, mean(vies)]
+ena <- data.frame(
+  Erro = c("Cobertura do auxiliar (seções sem par em 2018)",
+           "Seções agregadas sem linha própria",
+           "Comissão (unidades repetidas ou indevidas)",
+           "Inconsistências de registro",
+           "Medição no registro de origem",
+           "Não resposta"),
+  Etapa = c("Pareamento 2018 ↔ 2022", "Definição do quadro", "Filtros do quadro",
+            "Preparação da base", "Apuração (TSE)", "Coleta"),
+  Causa = c("Seções criadas, extintas ou renumeradas entre as eleições: a chave município + zona + seção não se repete",
+            "O TSE contabiliza os eleitores da seção agregada na seção principal",
+            "O arquivo repete cada seção por cargo e por turno",
+            "Possíveis erros de digitação ou de carga nos arquivos",
+            "Erro no boletim de urna ou na sua transcrição",
+            "—"),
+  Correção = c("Sem imputação; plano 4 restrito ao pareado e avaliado contra dois gabaritos",
+               "UE definida como seção principal",
+               "Filtro de turno e de um único cargo; checagem de duplicatas",
+               "Checagens da Tabela de consistência; conferência com a tabela munzona",
+               "Nenhuma possível com estes dados",
+               "Não se aplica: a coleta é uma extração completa"),
+  Efeito = c(paste0(pct(1 - pct_sec_par), "% das seções (", pct(1 - pct_apt_par), "% dos aptos) sem auxiliar; ",
+                    "abstenção ", pct(R_sem), "% nelas contra ", pct(R0_par), "% no pareado; viés de ",
+                    pct(vies4, 2), " p.p. do plano 4 contra o R total"),
+             "Nenhum sobre R (totais idênticos aos da tabela munzona)",
+             paste0(num(prep$checagens[checagem == "seções duplicadas", valor]), " duplicatas após os filtros"),
+             "Nenhuma violação encontrada",
+             "Atinge da mesma forma estimativas e gabarito; não altera a comparação dos planos",
+             "Nenhum"))
+kable(ena, caption = "Erros não amostrais: etapa, causa, correção e efeito.")
+```
+
+O erro de cobertura do plano 4 tem efeito sistemático. As seções sem par têm abstenção menor (`r pct(R_sem)`%) que as pareadas (`r pct(R0_par)`%), então o subconjunto pareado não é uma amostra aleatória das seções, e o $R$ pareado (`r pct(R0_par, 3)`%) fica acima do $R$ total (`r pct(R0, 3)`%). Esse viés não diminui com o tamanho da amostra.
+
+## Análise e Estimativas Obtidas {#analise}
+
+<!-- *	Como o(s) parâmetro(s) populacional foi (foram) estimado(s) (fórmula exata)? -->
+<!-- *	Como você estimou a variância associada (fórmula exata)? -->
 <!-- * Se você utilizou algum software, o código deve estar contido neste .rmd (echo=FALSE). -->
 
-```{r simulacao-exemplar, include=FALSE}
-# Exemplo genérico de cálculo numérico no R para uso via código inline
-amostra_exemplo <- c(12.4, 15.1, 10.8, 14.2, 11.5, 13.0, 12.1)
-n_amostra <- length(amostra_exemplo)
-media_estimada <- mean(amostra_exemplo)
-dp_estimado <- sd(amostra_exemplo)
+As fórmulas exatas de estimação e de variância usadas em cada plano estão na Seção \@ref(protocolo). Todo o código está no Apêndice \@ref(codigo).
+
+### Amostra oficial
+
+A Tabela \@ref(tab:tab-amostra-oficial) traz a amostra oficial de cada plano no orçamento de referência (`r num(of$orcamento, 1)` unidades de custo, $c_1/c_2 = `r of$razao_c1_c2`$). As três primeiras colunas descrevem a amostra (seções, municípios e custo realizado). As demais são a inferência para a população: estimativa, erro-padrão estimado e intervalo de confiança. O gabarito só entra na última coluna, para comparação. Todos os intervalos contêm o gabarito. O erro das estimativas pontuais vai de `r pct(min(abs(tab_of$erro)), 2)` a `r pct(max(abs(tab_of$erro)), 2)` p.p., e o plano 3 tem o menor erro-padrão estimado (`r pct(ofp("3 Dois estágios")$ep, 3)` p.p., contra `r pct(ofp("1 AAS")$ep, 3)` p.p. da AAS). Com uma única amostra, porém, a diferença entre os erros pontuais é sobretudo sorte. A comparação dos planos vem do Monte Carlo.
+
+```{r tab-amostra-oficial}
+to <- copy(tab_of)
+to[, nome := paste0(ROTULOS[plano], ifelse(plano == "4 Razão com auxiliar 2018",
+                                           paste0(" (gabarito ", gabarito_usado, ")"), ""))]
+kable(to[, .(nome, num(secoes), num(municipios), num(custo), pct(R, 3), pct(ep, 3),
+             ic(ic_inf, ic_sup), pct(gabarito, 3), ifelse(cobre, "Sim", "Não"))],
+      col.names = c("Plano", "Seções", "Municípios", "Custo", "R̂ (%)", "EP (p.p.)",
+                    paste0("IC ", 100 * CONF, "% (%)"), "Gabarito (%)", "IC cobre?"),
+      align = "lrrrrrrrc",
+      caption = paste0("Amostra oficial (semente ", of$semente, "): descrição da amostra, estimativa, erro-padrão estimado e intervalo de confiança de cada plano, comparados ao gabarito. No plano 3 as seções são contadas pelo número nominal de sorteios."))
 ```
 
-<!-- Exemplo de texto usando r inline -->
+Os parâmetros secundários, estimados nas mesmas seções dos planos 1 a 3 com o mesmo estimador de cada plano (trocando $y$ por brancos ou nulos e $x$ pelo comparecimento), estão na Tabela \@ref(tab:tab-secundarios).
 
-A partir do procedimento aplicado, obteve-se um tamanho amostral de $n = `r n_amostra`$ observações. A estimativa pontual para a média populacional é de `r round(media_estimada, 2)`, com desvio padrão amostral de `r round(dp_estimado, 2)`.
-
-<!-- Exemplo de Tabela com Referência Cruzada -->
-
-A Tabela \@ref(tab:tab-resumo-estatistico) ilustra o formato padrão para exibição de tabelas informativas no relatório.
-
-```{r tab-resumo-estatistico}
-dados_tabela <- data.frame(
-  Métrica = c("Tamanho Amostral (n)", "Média Estimada", "Desvio Padrão"),
-  Valor = c(n_amostra, round(media_estimada, 2), round(dp_estimado, 2))
-)
-
-knitr::kable(
-  dados_tabela,
-  col.names = c("Métrica Estatística", "Valor"),
-  caption = "Exemplo de tabela resumo para demonstração de referência cruzada."
-)
+```{r tab-secundarios}
+kable(sec[, .(parametro, ROTULOS[plano], pct(R, 3), pct(ep, 3), ic(ic_inf, ic_sup),
+              pct(gabarito, 3), ifelse(cobre, "Sim", "Não"))],
+      col.names = c("Parâmetro", "Plano", "Estimativa (%)", "EP (p.p.)",
+                    paste0("IC ", 100 * CONF, "% (%)"), "Gabarito (%)", "IC cobre?"),
+      align = "llrrrrc",
+      caption = "Parâmetros secundários na amostra oficial: proporção de votos brancos e de nulos para Governador sobre o comparecimento.")
 ```
 
+### Monte Carlo: desempenho dos planos
 
+Uma única amostra não mostra o comportamento de um plano. Para isso repetimos o sorteio $B = `r num(sim$B)`$ vezes em cada combinação de plano, orçamento e cenário de custo, e comparamos as estimativas $\hat R^{(b)}$ com o gabarito $R$. As métricas são:
 
-<!-- Exemplo de Gráfico com Referência Cruzada -->
+- viés $= \overline{\hat R} - R$;
+- **variância verdadeira** $= \mathrm{Var}_b(\hat R^{(b)})$, a variância empírica entre réplicas;
+- **variância estimada** média $= \overline{\widehat{\mathrm{Var}}^{(b)}}$, isto é, a média da fórmula aplicada em cada amostra;
+- $\mathrm{EQM} = \frac1B \sum_b (\hat R^{(b)} - R)^2$ e REQM $= \sqrt{\mathrm{EQM}}$;
+- cobertura: fração das réplicas cujo IC de `r 100 * CONF`% contém $R$;
+- efeito do plano (deff de Kish): variância verdadeira dividida pela de uma AAS com o mesmo número de seções;
+- **eficiência a custo igual**: EQM da AAS no mesmo orçamento dividido pelo EQM do plano. Acima de 1, o plano é melhor que a AAS.
 
-A Figura \@ref(fig:fig-distribuicao-amostral) exibe a distribuição da variável de interesse.
+A Tabela \@ref(tab:tab-desempenho-planos) resume o cenário central. Nos planos 1 a 3, o viés é desprezível (no máximo `r pct(max(abs(p123[alvo == "total"]$vies)), 3)` p.p. em valor absoluto em todos os cenários). A razão entre variância estimada e verdadeira fica entre `r num(min(p123$razao_var), 2)` e `r num(max(p123$razao_var), 2)`, e a cobertura entre `r num(min(p123$cobertura), 3)` e `r num(max(p123$cobertura), 3)`. Com $B = `r num(sim$B)`$, o erro de Monte Carlo de uma cobertura de `r 100 * CONF`% é de cerca de `r pct(sqrt(CONF * (1 - CONF) / sim$B), 2)` p.p. Portanto as fórmulas de variância, inclusive a de Hansen–Hurwitz do plano 3, funcionam bem nos desenhos escolhidos.
 
-```{r fig-distribuicao-amostral, fig.cap = "Exemplo de figura demonstrativa para aplicação de referência cruzada."}
-df_grafico <- data.frame(Valor = amostra_exemplo)
-
-ggplot(df_grafico, aes(x = Valor)) +
-  geom_histogram(bins = 5, fill = "steelblue", color = "black", alpha = 0.7) +
-  labs(
-    x = "Variável Mensurada",
-    y = "Frequência"
-  ) +
-  theme_minimal()
+```{r tab-desempenho-planos}
+tdp <- copy(cen)[order(n_ref, rotulo(plano), -xtfrm(alvo))]
+tdp[, nome := paste0(ROTULOS[plano], ifelse(plano == "4 Razão com auxiliar 2018",
+                                            paste0(" (", alvo, ")"), ""))]
+kable(tdp[, .(paste0(num(orcamento, 1), " (n = ", n_ref, ")"), nome, num(secoes_media),
+              num(munic_media), pct(vies, 3), pct(sqrt(var_verd), 3), pct(reqm, 3),
+              num(razao_var, 2), num(cobertura, 3), num(deff, 2), num(eficiencia_custo, 2))],
+      col.names = c("Orçamento", "Plano", "Seções", "Municípios", "Viés (p.p.)",
+                    "EP verdadeiro (p.p.)", "REQM (p.p.)", "Var. estimada / verdadeira",
+                    "Cobertura", "deff", "Eficiência a custo igual"),
+      align = "llrrrrrrrrr",
+      caption = paste0("Desempenho dos planos no Monte Carlo (B = ", num(sim$B), " réplicas, c1/c2 = ",
+                       RAZAO_C1_C2, "). Seções e municípios são médias entre réplicas. O plano 4 aparece avaliado contra o R pareado e contra o R total."))
 ```
 
-Como observado na Figura \@ref(fig:fig-distribuicao-amostral), as medições concentram-se em torno do valor estimado.
+A Figura \@ref(fig:fig-distribuicao-estimativas) mostra a distribuição das estimativas no orçamento de referência. Todos os planos se centram no gabarito, com exceção do plano 4, que se centra no $R$ do subconjunto pareado. A dispersão do plano 3 é a menor.
 
+```{r fig-distribuicao-estimativas, fig.height = 3.6, fig.cap = paste0("Distribuição das estimativas da taxa de abstenção nas ", num(sim$B), " réplicas de Monte Carlo, orçamento de referência (AAS n = ", N_AAS_REFERENCIA, ") e c1/c2 = ", RAZAO_C1_C2, ". Linha contínua: gabarito (R de todas as seções); linha tracejada: R do subconjunto pareado, alvo do plano 4.")}
+ids <- sim$tarefas[grupo == "grade" & razao_c1_c2 == RAZAO_C1_C2 & n_ref == N_AAS_REFERENCIA, .(id, plano)]
+rr <- merge(sim$replicas, ids, by = "id")
+rr[, Plano := factor(ROTULOS[plano], levels = rev(ROTULOS))]
+ggplot(rr, aes(x = 100 * R, y = Plano)) +
+  geom_boxplot(width = 0.55, fill = "#dbe8f7", colour = "#2a5d9a", outlier.size = 0.7,
+               outlier.alpha = 0.5) +
+  geom_vline(xintercept = 100 * R0, colour = "#0b0b0b", linewidth = 0.6) +
+  geom_vline(xintercept = 100 * R0_par, colour = "#52514e", linewidth = 0.6, linetype = "dashed") +
+  scale_x_continuous(labels = virgula) +
+  labs(x = "Estimativa da taxa de abstenção (%)", y = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(panel.grid.major.y = element_blank(), panel.grid.minor = element_blank())
+```
+
+**Custo e sensibilidade.** A Figura \@ref(fig:fig-eqm-custo) mostra o REQM em função do orçamento nos três cenários de custo, e a Tabela \@ref(tab:tab-sensibilidade-custo) dá a eficiência a custo igual de cada plano.
+
+- **Plano 3 (dois estágios):** tem o menor EQM em todas as combinações de orçamento e cenário, e a vantagem cresce com $c_1/c_2$. Com $c_1/c_2 = `r min(RAZOES_SENSIBILIDADE)`$, porém, a vantagem é pequena e fica perto do erro de Monte Carlo. A eficiência vai de `r num(min(efic3[razao_c1_c2 == min(RAZOES_SENSIBILIDADE)]$eficiencia_custo), 2)`–`r num(max(efic3[razao_c1_c2 == min(RAZOES_SENSIBILIDADE)]$eficiencia_custo), 2)` com $c_1/c_2 = `r min(RAZOES_SENSIBILIDADE)`$ até `r num(min(efic3[razao_c1_c2 == max(RAZOES_SENSIBILIDADE)]$eficiencia_custo), 2)`–`r num(max(efic3[razao_c1_c2 == max(RAZOES_SENSIBILIDADE)]$eficiencia_custo), 2)` com $c_1/c_2 = `r max(RAZOES_SENSIBILIDADE)`$. A vantagem vem apesar de um deff maior que 1 (`r paste(num(cen_t[plano == "3 Dois estágios"]$deff, 2), collapse = ", ")` nos três orçamentos do cenário central). A correlação intraclasse de $d_i$ entre seções do mesmo município, fora da capital, é `r num(icc22, 3)` em 2022. Ou seja, cada seção do plano 3 informa menos que uma seção da AAS, mas o plano compra muito mais seções com o mesmo dinheiro (`r num(cen_t[plano == "3 Dois estágios" & n_ref == N_AAS_REFERENCIA]$secoes_media)` contra `r num(cen_t[plano == "1 AAS" & n_ref == N_AAS_REFERENCIA]$secoes_media)` no orçamento de referência).
+- **Estratificadas:** ficam praticamente iguais à AAS (eficiência entre `r num(min(grade[grepl("Estrat", plano)]$eficiencia_custo), 2)` e `r num(max(grade[grepl("Estrat", plano)]$eficiencia_custo), 2)`, dentro do erro de Monte Carlo), como a análise de 2018 antecipava.
+- **Plano 4:** perde para a AAS quando avaliado contra o $R$ total.
+
+```{r fig-eqm-custo, fig.height = 3.8, fig.cap = paste0("Raiz do erro quadrático médio (REQM) de cada plano em função do orçamento, nos três cenários de custo (B = ", num(sim$B), " réplicas por ponto; todos os planos avaliados contra o R de todas as seções). Os três pontos de cada linha correspondem aos orçamentos de uma AAS com n = ", paste(N_AAS_ORCAMENTO, collapse = ", "), ".")}
+g <- grade[alvo == "total"]
+g[, Plano := rotulo(plano)]
+g[, cenario := factor(paste0("c1/c2 = ", razao_c1_c2),
+                      levels = paste0("c1/c2 = ", RAZOES_SENSIBILIDADE))]
+ggplot(g, aes(x = orcamento, y = 100 * reqm, colour = Plano, shape = Plano)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 2.4) +
+  facet_wrap(~ cenario, scales = "free_x") +
+  scale_colour_manual(values = CORES) +
+  scale_shape_manual(values = FORMAS) +
+  scale_y_continuous(limits = c(0, NA), labels = virgula) +
+  # marcas só no miolo de cada painel, para os rótulos não encostarem no vizinho
+  scale_x_continuous(breaks = function(lim) {
+                       b <- scales::breaks_pretty(4)(lim)
+                       b[b > lim[1] + 0.1 * diff(lim) & b < lim[2] - 0.1 * diff(lim)]
+                     },
+                     labels = scales::label_number(big.mark = ".")) +
+  labs(x = "Orçamento (unidades de custo)", y = "REQM (p.p.)", colour = NULL, shape = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank(),
+        panel.spacing.x = unit(1.4, "lines")) +
+  guides(colour = guide_legend(nrow = 2), shape = guide_legend(nrow = 2))
+```
+
+```{r tab-sensibilidade-custo}
+ts <- grade[alvo == "total" & plano != "1 AAS"]
+ts[, col := ROTULOS[plano]]
+tsw <- dcast(ts, razao_c1_c2 + n_ref ~ col, value.var = "eficiencia_custo")
+setcolorder(tsw, c("razao_c1_c2", "n_ref", intersect(ROTULOS, names(tsw))))
+for (j in names(tsw)[-(1:2)]) set(tsw, j = j, value = num(tsw[[j]], 2))
+kable(tsw, col.names = c("c1/c2", "Orçamento (AAS n)", names(tsw)[-(1:2)]),
+      align = paste0("cc", strrep("r", ncol(tsw) - 2)),
+      caption = "Eficiência a custo igual (EQM da AAS no mesmo orçamento ÷ EQM do plano) por cenário de custo e orçamento. Valores acima de 1 indicam plano melhor que a AAS. O plano 4 é avaliado contra o R de todas as seções.")
+```
+
+**Escolha de $m$ e $k$ no plano 3.** A Figura \@ref(fig:fig-m-vs-k) percorre a grade de $(m, k)$ com o mesmo custo no orçamento de referência. Com poucas UPAs, o 1º estágio domina a variância: com $m = `r min(curva$m)`$, o REQM é de `r pct(curva[m == min(m)]$reqm, 2)` p.p. Ao aumentar $m$ e reduzir $k$, o REQM cai até `r pct(curva[m == max(m)]$reqm, 2)` p.p. no maior $m$ viável ($m = `r max(curva$m)`$, $k = `r curva[m == max(m)]$k`$), que é o par escolhido a priori. Acima disso, o desenho deixa de caber no orçamento com a fração da capital dentro da tolerância. Com poucas UPAs a **cobertura do IC normal fica abaixo do nominal**: `r num(curva[m == min(m)]$cobertura, 3)` com $m = `r min(curva$m)`$, e só a partir de $m = `r m_ok`$ ela fica acima de `r num(limiar_cob, 2)`. A variância de Hansen–Hurwitz com $m$ pequeno tem poucos graus de liberdade ($m - 1$), e a distribuição de $\hat R$ ainda não é normal. Um IC com quantil $t_{m-1}$ ajudaria, mas no desenho escolhido ($m = `r p3_ref$m`$) isso é irrelevante.
+
+```{r fig-m-vs-k, fig.height = 4.6, fig.cap = paste0("Plano 3 no orçamento de referência (c1/c2 = ", RAZAO_C1_C2, "): REQM e cobertura do IC de ", 100 * CONF, "% para cada par (m, k) da grade de custo igual (B = ", num(sim$B), " réplicas por ponto; eixo de m em escala logarítmica). Barras: ± 2 erros de Monte Carlo da cobertura. Linha tracejada: cobertura nominal. Ponto maior: par escolhido a priori.")}
+cv <- curva[, .(m, k, reqm = 100 * reqm, cobertura, ep = cobertura_ep_mc,
+                escolhido = m == p3_ref$m & k == p3_ref$k)]
+paineis <- c("REQM (p.p.)", "Cobertura do IC")
+longo <- rbind(cv[, .(m, k, escolhido, painel = paineis[1], valor = reqm, inf = NA_real_, sup = NA_real_)],
+               cv[, .(m, k, escolhido, painel = paineis[2], valor = cobertura,
+                      inf = cobertura - 2 * ep, sup = cobertura + 2 * ep)])
+longo[, painel := factor(painel, levels = paineis)]
+ggplot(longo, aes(x = m, y = valor)) +
+  geom_hline(data = data.frame(painel = factor(paineis[2], levels = paineis), y = CONF),
+             aes(yintercept = y), linetype = "dashed", colour = "#52514e") +
+  geom_errorbar(aes(ymin = inf, ymax = sup), width = 0, colour = "#8fb3e0", na.rm = TRUE) +
+  geom_line(colour = "#2a78d6", linewidth = 0.7) +
+  geom_point(aes(size = escolhido), colour = "#2a78d6", show.legend = FALSE) +
+  scale_size_manual(values = c(`FALSE` = 1.6, `TRUE` = 3.6)) +
+  geom_text(data = longo[painel == paineis[1] & m %in% c(min(m), 10, 30, 100, max(m))],
+            aes(label = paste0("k = ", k)), hjust = -0.2, vjust = -0.6, size = 3,
+            colour = "#52514e") +
+  scale_x_log10(breaks = c(3, 5, 10, 20, 50, 100, 160),
+                expand = expansion(mult = c(0.03, 0.09))) +
+  scale_y_continuous(labels = virgula, expand = expansion(mult = c(0.05, 0.15))) +
+  facet_wrap(~ painel, ncol = 1, scales = "free_y") +
+  labs(x = "m (sorteios de municípios fora da capital)", y = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(panel.grid.minor = element_blank())
+```
+
+**A priori contra o observado.** A Tabela \@ref(tab:tab-margens) compara quatro margens de erro: a margem a priori calculada com 2018, a margem que as mesmas fórmulas dão com a população de 2022, a margem empírica do Monte Carlo (`r num(q975, 2)` × desvio-padrão entre réplicas) e a média da margem estimada em cada amostra. As fórmulas aplicadas a 2022 reproduzem a variância empírica, então as fórmulas de planejamento estão corretas. A margem a priori, porém, **superestimou** a de 2022, porque 2018 foi mais variável:
+
+- o desvio-padrão de $d_i$ foi `r num(sd_d18, 1)` em 2018 contra `r num(sd_d22, 1)` em 2022;
+- a correlação intraclasse fora da capital foi `r num(icc18, 2)` contra `r num(icc22, 2)`, o que pesa mais no plano 3.
+
+Por isso o planejamento com 2018 foi conservador, e a ordem dos planos e a escolha de $(m, k)$ não mudaram.
+
+```{r tab-margens}
+tm <- cen_t[plano != "4 Razão com auxiliar 2018"][order(n_ref, rotulo(plano))]
+kable(tm[, .(n_ref, ROTULOS[plano], pct(margem_priori_2018, 3), pct(margem_analitica_2022, 3),
+             pct(margem_empirica, 3), pct(margem_estimada_media, 3))],
+      col.names = c("Orçamento (AAS n)", "Plano", "A priori (2018)", "Fórmula com 2022",
+                    "Empírica (Monte Carlo)", "Estimada (média)"),
+      align = "clrrrr",
+      caption = paste0("Margens de erro de ", 100 * CONF, "% (p.p.) no cenário central: planejada com 2018, fórmula de planejamento aplicada à população de 2022, empírica (", num(q975, 2), " × desvio-padrão entre réplicas) e média das margens estimadas em cada amostra."))
+```
+
+**Por que a Neyman não superou a proporcional.** Com o **mesmo número de seções**, as duas alocações têm a mesma variância em 2022 (`r num(1e6 * dn$var_prop_2022[1], 3)` contra `r num(1e6 * dn$var_neyman_mesmo_n_2022[1], 3)` × 10⁻⁶ no orçamento de referência), porque os $S_h$ quase não variam entre regiões. A Neyman é ótima quando o custo por seção é igual em todos os estratos, e isso não vale aqui. Ela tira seções da região de `r dn[which.min(dif)]$regiao`, onde uma seção a mais custa só `r num(dn[which.min(dif)]$custo_marginal_prop, 1)` unidades (muitas seções em poucos municípios), e as põe em regiões mais caras. O maior aumento foi em `r dn_mais$regiao` (`r dn_mais$nh_prop` → `r dn_mais$nh_neyman` seções; custo marginal `r num(dn_mais$custo_marginal_prop, 1)`), cujo $S_h$ era alto em 2018 (`r num(dn_mais$Sh_2018, 1)`) mas não em 2022 (`r num(dn_mais$Sh_2022, 1)`). A custo igual, a Neyman compra menos seções (`r d_ref$neyman$n` contra `r d_ref$proporcional$n`). No Monte Carlo as duas não se distinguem.
+
+**Por que o auxiliar de 2018 não ajudou.** Contra o $R$ pareado, o plano 4 é não viesado (|viés| ≤ `r pct(max(abs(p4p$vies)), 3)` p.p.) e tem cobertura de `r num(min(p4p$cobertura), 3)` a `r num(max(p4p$cobertura), 3)`. Ainda assim, não é mais preciso que a AAS. As abstenções de 2018 se correlacionam mais com as de 2022 do que os aptos (correlação de `r num(d4$cor_y_z, 2)` contra `r num(d4$cor_y_x, 2)`), mas a variância do resíduo do plano 4 é praticamente a do resíduo que a AAS já usa ao estimar a razão em $x$ (razão `r num(d4$razao_variancias, 2)`). Contra o $R$ total, soma-se o viés de cobertura (cerca de `r pct(vies4, 2)` p.p.), que não cai com $n$. Por isso a cobertura do IC piora com o orçamento (`r paste(num(p4t[razao_c1_c2 == RAZAO_C1_C2][order(n_ref)]$cobertura, 3), collapse = ", ")` nos três orçamentos) e a eficiência fica abaixo de 1.
+
+**Estabilidade de $B$.** O erro de Monte Carlo relativo do EQM foi de no máximo `r pct(max(grade[alvo == "total"]$eqm_ep_mc / grade[alvo == "total"]$eqm), 1)`% nas combinações principais, próximo de $\sqrt{2/B}$. O EQM com metade das réplicas ficou a no máximo `r pct(desvio_meio, 0)`% do EQM final. A vantagem do plano 3 e a perda do plano 4 são bem maiores que esse erro. Já as diferenças entre AAS e estratificadas não podem ser resolvidas com um $B$ viável e, a priori, já eram pequenas.
 
 ## Considerações Finais
 
 <!-- *	Apresente as estimativas geradas a partir do estudo. -->
-<!-- *	Quão boas você as considera, levando em conta a precisão estatística e outros problemas que você suspeita ou pode detectar? -->
+<!-- *	Quão boas você as considera (precisão estatística e outros problemas)? -->
 
+**Estimativas.** Pela amostra oficial do plano recomendado (dois estágios), a taxa de abstenção no 1º turno de 2022 em São Paulo é estimada em **`r pct(ofp("3 Dois estágios")$R, 2)`%**, com erro-padrão de `r pct(ofp("3 Dois estágios")$ep, 2)` p.p. e IC de `r 100 * CONF`% igual a `r ic(ofp("3 Dois estágios")$ic_inf, ofp("3 Dois estágios")$ic_sup)`%. O valor verdadeiro é `r pct(R0, 2)`%. Os cinco desenhos deram estimativas entre `r pct(min(tab_of$R), 2)`% e `r pct(max(tab_of$R), 2)`%, todas com intervalos que contêm o gabarito (Tabela \@ref(tab:tab-amostra-oficial)). Brancos e nulos estão na Tabela \@ref(tab:tab-secundarios).
 
-# Referências
+**Resposta à pergunta.** Com o modelo de custo adotado, **o plano em dois estágios (capital autorrepresentativa e PPT de municípios) é o que estima melhor a abstenção com orçamento limitado.** Ele teve o menor EQM em todos os orçamentos e cenários de custo, e a vantagem cresce quando visitar um município fica relativamente mais caro. Quando o município custa pouco mais que algumas seções ($c_1/c_2 = `r min(RAZOES_SENSIBILIDADE)`$), os planos ficam próximos. A estratificação por região intermediária não compensa nem atrapalha, porque a abstenção varia muito mais dentro das regiões do que entre elas. O auxiliar de 2018 não melhora a precisão, porque a razão em aptos já captura quase a mesma informação, e ainda introduz um viés de cobertura.
+
+**Qualidade das estimativas e limitações.**
+
+- **Precisão e cobertura.** Nos desenhos escolhidos, a precisão é boa: o REQM do plano 3 no orçamento de referência é de `r pct(cen_t[plano == "3 Dois estágios" & n_ref == N_AAS_REFERENCIA]$reqm, 2)` p.p., e a cobertura dos ICs fica perto da nominal.
+- **Modelo de custo.** É hipotético, e a conclusão depende de $c_1 > c_2$. Com $c_1/c_2 = `r min(RAZOES_SENSIBILIDADE)`$ a vantagem do plano 3 já é menor.
+- **Poucas UPAs.** O IC normal subcobre quando há poucas UPAs (Figura \@ref(fig:fig-m-vs-k)), o que importaria se o orçamento só permitisse poucos municípios.
+- **"Erro técnico" do plano 3.** A fórmula de Hansen–Hurwitz ignora a correção de população finita do 1º estágio. O Monte Carlo mostrou que a distorção é pequena (razão entre variância estimada e verdadeira de `r num(min(efic3$razao_var), 2)` a `r num(max(efic3$razao_var), 2)` nos cenários).
+- **Medição.** Um erro no registro de origem não seria detectado, porque o gabarito vem da mesma base. Ele afetaria igualmente todos os planos.
+- **Auxiliar de 2018.** O planejamento com 2018 superestimou as margens, um erro a favor da segurança. O pareamento deixou `r pct(1 - pct_sec_par)`% das seções sem auxiliar, o que limita qualquer uso de 2018 como variável auxiliar.
+
+# Referências {-}
 
 <div id="refs"></div>
 
 # (APPENDIX) Apêndice {-}
 
-# Código utilizado
+# Código utilizado {#codigo}
 
 <!-- O enunciado pede que o código esteja no .Rmd. Os scripts ficam em R/ e são
      exibidos aqui sem serem executados de novo (eval = FALSE). -->
+
+Os scripts abaixo geram tudo o que o relatório lê em `dados/` e `resultados/`. Devem ser rodados a partir da raiz do projeto, nesta ordem: `preparar-dados.R`, `priori.R`, `validar-survey.R`, `simulacao.R` e `secundarios.R`. O relatório não refaz sorteios nem a simulação.
 
 ```{r codigo-config, file="R/config.R", eval=FALSE, echo=TRUE}
 ```
@@ -164,4 +685,7 @@ Como observado na Figura \@ref(fig:fig-distribuicao-amostral), as medições con
 ```
 
 ```{r codigo-simulacao, file="R/simulacao.R", eval=FALSE, echo=TRUE}
+```
+
+```{r codigo-secundarios, file="R/secundarios.R", eval=FALSE, echo=TRUE}
 ```
