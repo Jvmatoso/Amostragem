@@ -121,10 +121,15 @@ dimensionar_estrat <- function(orc, tipo = c("proporcional", "neyman"),
   list(n = sum(nh), nh = nh, custo = custo_estrat(nh, qm, Nh, c1, c2))
 }
 
-sel_estrat <- function(d, nh) {
-  Nh_obs <- table(d$nm_regiao_int)
+# Linhas da base por estrato (pré-calculadas uma vez para acelerar o Monte Carlo)
+linhas_por_estrato <- function(d) split(seq_len(nrow(d)), d$nm_regiao_int)
+
+# lin_h: saída de linhas_por_estrato(); se omitida, é calculada aqui.
+# Os sorteios (sample.int, na ordem de names(nh)) não dependem de lin_h.
+sel_estrat <- function(d, nh, lin_h = NULL) {
+  if (is.null(lin_h)) lin_h <- linhas_por_estrato(d)
   rbindlist(lapply(names(nh), function(h) {
-    linhas <- which(d$nm_regiao_int == h)
+    linhas <- lin_h[[h]]
     i <- linhas[sample.int(length(linhas), nh[[h]])]
     data.table(i = i, estrato = h, parte = "unico", sorteio = NA_integer_,
                pi = nh[[h]] / length(linhas), peso = length(linhas) / nh[[h]])
@@ -191,15 +196,19 @@ sel_plano3 <- function(d, qm, linhas, m, k, k_SP) {
   o <- qm[capital == FALSE]
   p <- o$Mi / sum(o$Mi)
   sorteados <- sample.int(nrow(o), m, replace = TRUE, prob = p)
-  parte_o <- rbindlist(lapply(seq_len(m), function(j) {
-    u <- sorteados[j]
-    L <- linhas[[as.character(o$cd_municipio_tse[u])]]
-    kj <- min(k, length(L))
-    # pi aproximada (m p_i k_i / N_i); o peso coincide com o de Hansen–Hurwitz
-    data.table(i = L[sample.int(length(L), kj)], estrato = "outros",
-               parte = "outros", sorteio = j, Ni = o$Ni[u], pj = p[u], kj = kj,
-               pi = m * p[u] * kj / o$Ni[u], peso = o$Ni[u] / (m * p[u] * kj))
-  }))
+  # 2º estágio: um sorteio por vez, na ordem j = 1..m (vetores, sem montar
+  # uma tabela por sorteio, para acelerar o Monte Carlo)
+  L_o <- linhas[as.character(o$cd_municipio_tse[sorteados])]
+  kj  <- pmin(k, lengths(L_o))
+  i_o <- unlist(lapply(seq_len(m), function(j)
+    L_o[[j]][sample.int(length(L_o[[j]]), kj[j])]))
+  u   <- rep(sorteados, kj)
+  kk  <- rep(kj, kj)
+  # pi aproximada (m p_i k_i / N_i); o peso coincide com o de Hansen–Hurwitz
+  parte_o <- data.table(i = i_o, estrato = "outros", parte = "outros",
+                        sorteio = rep(seq_len(m), kj), Ni = o$Ni[u], pj = p[u],
+                        kj = kk, pi = m * p[u] * kk / o$Ni[u],
+                        peso = o$Ni[u] / (m * p[u] * kk))
   rbind(parte_c, parte_o)
 }
 

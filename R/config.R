@@ -7,11 +7,13 @@
 
 # --- Reprodutibilidade --------------------------------------------------------
 SEMENTE <- 430                      # semente única do projeto
-# Se a simulação for paralelizada, usar também:
-# RNGkind("L'Ecuyer-CMRG")
+# A amostra oficial usa o gerador padrão do R (Mersenne-Twister) com SEMENTE.
+# O Monte Carlo (paralelo) usa RNGkind("L'Ecuyer-CMRG") + set.seed(SEMENTE),
+# com um fluxo independente por tarefa (ver R/simulacao.R).
 
 # --- Monte Carlo --------------------------------------------------------------
 B <- 1000                           # réplicas por plano e orçamento (checar estabilidade do EQM)
+N_NUCLEOS <- 6                      # processos paralelos no Monte Carlo (o resultado não depende disso)
 
 # --- Orçamentos ---------------------------------------------------------------
 # Orçamento = custo esperado de uma AAS com estes tamanhos de amostra

@@ -120,11 +120,11 @@ Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o u
 - Nenhuma no momento.
 
 ## Pendências para verificar adiante
-- **Etapa 6 (Monte Carlo):** conferir as margens/variâncias a priori (`R/priori.R`, sobretudo a fórmula do plano 3) contra a variância empírica entre réplicas. Até lá, não foram validadas por simulação.
-- Investigar por que a Neyman, a custo igual, fica atrás da proporcional (causa não investigada; ver `docs/registro.md`).
-- Na amostra oficial, o EP do plano 4 saiu igual ao da AAS (auxiliar de 2018 sem ganho aparente). Conferir no Monte Carlo se isso se mantém e por quê.
+- Nenhuma. As três da etapa 6 (margens a priori, Neyman atrás da proporcional, EP do plano 4 igual ao da AAS) foram resolvidas no Monte Carlo; causas e números em `docs/registro.md` (2026-11-05).
+- Para o relatório (etapa 7): discutir a subcobertura do IC normal com poucas UPAs na curva de m (m = 3: 0,82).
 
 ## Decisões tomadas
+- **Monte Carlo** (2026-11-05): 66 tarefas × B = 1.000 (grade 5 planos × 3 orçamentos × 3 cenários de custo + curva de m do plano 3 no orçamento 400). Um fluxo L'Ecuyer-CMRG por tarefa a partir de `SEMENTE` (resultado independe de `N_NUCLEOS`); a amostra oficial segue no gerador padrão. Saída: `resultados/simulacao.rds` (réplicas, `resumo`, `estabilidade`, diagnósticos). Figuras e tabelas finais ficam para a etapa 7.
 - **Plano 3, par (m, k)** (2026-11-05): "melhor a priori", o (m, k, k_SP) de menor margem a priori em cada orçamento e cenário (`plano3_escolhido` em `resultados/desenho.rds`; grade de m até 500). Central: 200 → 120 × 2; 400 → 160 × 4 (amostra oficial); 800 → 350 × 3. O Monte Carlo inclui também uma curva de m no orçamento 400 (`fig-m-vs-k`).
 - **Plano 3, capital e grade m × k** (2026-11-05): k_SP proporcional à fatia de aptos da capital (±5 p.p.); k comum fora da capital; subamostra independente por sorteio. Ver `docs/registro.md`.
 - **Plano 4** (2026-11-05): AAS no pareado, Ŷ_R = (ȳ/z̄)·Z, R̂ = Ŷ_R / X_pareado; avaliado contra gabarito pareado e total.

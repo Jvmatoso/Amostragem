@@ -55,11 +55,13 @@ est_plano3 <- function(am, N_SP) {
   k_SP <- nrow(cc)
   Yc <- N_SP * mean(cc$y); Xc <- N_SP * mean(cc$x)
 
-  g <- split(oo, oo$sorteio)
-  m <- length(g)
-  Yj <- sapply(g, function(u) u$Ni[1] / nrow(u) * sum(u$y))
-  Xj <- sapply(g, function(u) u$Ni[1] / nrow(u) * sum(u$x))
-  pj <- sapply(g, function(u) u$pj[1])
+  # Totais por sorteio j (rowsum, mais rápido que split no Monte Carlo)
+  s  <- rowsum(cbind(y = oo$y, x = oo$x, n = 1), oo$sorteio, reorder = TRUE)
+  j1 <- match(as.numeric(rownames(s)), oo$sorteio)   # 1ª linha de cada sorteio
+  m  <- nrow(s)
+  Yj <- oo$Ni[j1] / s[, "n"] * s[, "y"]
+  Xj <- oo$Ni[j1] / s[, "n"] * s[, "x"]
+  pj <- oo$pj[j1]
   Yo <- mean(Yj / pj); Xo <- mean(Xj / pj)
 
   X <- Xc + Xo
