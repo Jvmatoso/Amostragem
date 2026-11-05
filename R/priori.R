@@ -67,6 +67,11 @@ if (sys.nframe() == 0) {
   desenhos <- list(); linhas <- list()
   for (r in RAZOES_SENSIBILIDADE) for (n in N_AAS_ORCAMENTO) {
     ds <- desenhar(n, d, qm, c1 = r * C2, c2 = C2)
+    # Plano 3: margem a priori de cada (m, k) e escolha do par de menor margem
+    # (decidido em 2026-11-05: "melhor a priori" em cada orçamento e cenário)
+    ds$plano3[, margem := q * sqrt(mapply(function(m, k, kc)
+      var_priori_plano3(pp, qm, m, k, kc), m, k, k_SP))]
+    ds$plano3_escolhido <- ds$plano3[which.min(margem)]
     desenhos[[sprintf("c%d_n%d", r, n)]] <- ds
     base <- data.table(razao_c1_c2 = r, n_ref = n, orcamento = ds$orcamento)
     linhas[[length(linhas) + 1]] <- rbind(
@@ -80,8 +85,7 @@ if (sys.nframe() == 0) {
             margem = q * sqrt(var_priori_estrat(pp, ds$neyman$nh))),
       ds$plano3[, cbind(base, plano = "3 Dois estágios", m = m, k = k,
                         n_secoes = round(secoes_esperadas),
-                        margem = q * sqrt(mapply(function(m, k, kc)
-                          var_priori_plano3(pp, qm, m, k, kc), m, k, k_SP)))],
+                        margem = margem)],
       cbind(base, plano = "4 Razão com auxiliar 2018", m = NA, k = NA,
             n_secoes = ds$plano4$n, margem = NA_real_))
   }

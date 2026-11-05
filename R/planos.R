@@ -153,7 +153,8 @@ custo_plano3 <- function(m, k, k_SP, qm, c1 = C1, c2 = C2) {
 # são descartadas (k saturado: municípios pequenos já entram inteiros).
 grade_plano3 <- function(orc, qm, c1 = C1, c2 = C2,
                          ms = c(3:10, 12, 15, 20, 25, 30, 40, 50, 60, 80,
-                                100, 120, 150, 200, 250, 300),
+                                100, 120, 140, 160, 180, 200, 250, 300,
+                                350, 400, 450, 500),
                          ks = NULL, tol = 0.05) {
   o <- qm[capital == FALSE]
   if (is.null(ks)) ks <- 2:max(o$Ni)

@@ -117,13 +117,15 @@ Rodar a partir da raiz. Só caminhos relativos.
 
 ## Decisões em aberto (perguntar ao usuário antes de implementar)
 Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o usuário, registrar em `docs/registro.md` e então mover o item para "Decisões tomadas".
-- **Plano 3: escolher o par (m, k) da amostra oficial e do Monte Carlo** (decidir no início da etapa 5). A margem a priori cai com m; no orçamento 800 o melhor da grade foi m = 300, o limite dela (`ms` em `grade_plano3`, `R/planos.R`), então pode ser preciso estender a grade. Grade completa em `resultados/desenho.rds`; margens em `resultados/margem-priori.csv`.
+- Nenhuma no momento.
 
 ## Pendências para verificar adiante
 - **Etapa 6 (Monte Carlo):** conferir as margens/variâncias a priori (`R/priori.R`, sobretudo a fórmula do plano 3) contra a variância empírica entre réplicas. Até lá, não foram validadas por simulação.
 - Investigar por que a Neyman, a custo igual, fica atrás da proporcional (causa não investigada; ver `docs/registro.md`).
+- Na amostra oficial, o EP do plano 4 saiu igual ao da AAS (auxiliar de 2018 sem ganho aparente). Conferir no Monte Carlo se isso se mantém e por quê.
 
 ## Decisões tomadas
+- **Plano 3, par (m, k)** (2026-11-05): "melhor a priori", o (m, k, k_SP) de menor margem a priori em cada orçamento e cenário (`plano3_escolhido` em `resultados/desenho.rds`; grade de m até 500). Central: 200 → 120 × 2; 400 → 160 × 4 (amostra oficial); 800 → 350 × 3. O Monte Carlo inclui também uma curva de m no orçamento 400 (`fig-m-vs-k`).
 - **Plano 3, capital e grade m × k** (2026-11-05): k_SP proporcional à fatia de aptos da capital (±5 p.p.); k comum fora da capital; subamostra independente por sorteio. Ver `docs/registro.md`.
 - **Plano 4** (2026-11-05): AAS no pareado, Ŷ_R = (ȳ/z̄)·Z, R̂ = Ŷ_R / X_pareado; avaliado contra gabarito pareado e total.
 - **Capital na estratificada** (2026-11-05): município de São Paulo **não** é estrato próprio (ganho desprezível em 2018: 0,959 → 0,957); estratos = 11 regiões intermediárias.
