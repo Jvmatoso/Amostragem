@@ -123,7 +123,7 @@ Rodar a partir da raiz. Só caminhos relativos.
 
 ## Decisões em aberto (perguntar ao usuário antes de implementar)
 Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o usuário, registrar em `docs/registro.md` e então mover o item para "Decisões tomadas".
-- **k do plano 3 a n igual** (perguntar no início da etapa 8.1). Sugestão: k fixo = 4 em todos os n, mais curva k ∈ {1, 2, 4, 8} em n = 400. Alternativa: k de menor margem a priori com 2018 (provavelmente k = 1).
+- Nenhuma no momento.
 
 ## Pendências para verificar adiante
 - Nenhuma. As três da etapa 6 (margens a priori, Neyman atrás da proporcional, EP do plano 4 igual ao da AAS) foram resolvidas no Monte Carlo; causas e números em `docs/registro.md` (2026-11-05).
@@ -131,6 +131,7 @@ Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o u
 - Compilar fora do RStudio exige `RSTUDIO_PANDOC="C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools"` (o pandoc não está no PATH).
 
 ## Decisões tomadas
+- **Plano 3, k a n igual** (2026-11-17): k fixo = 4 em todos os n; k_SP = round(fatia de aptos da capital em 2022 × n); m tal que as seções esperadas fiquem o mais perto possível de n. Curva k ∈ {1, 2, 4, 8} em n = 400 (substitui a curva de m da `fig-m-vs-k`).
 - **Sem modelo de custo** (2026-11-17): planos comparados a n igual (n = 200, 400, 800; referência 400). Revoga as decisões de custos, orçamentos, cenários c₁/c₂ e "eficiência a custo igual" abaixo, e a escolha de (m, k) do plano 3 por orçamento. Motivo: o custo de coleta não tem base real (a abstenção só existe depois da votação e o TSE divulga tudo de uma vez). Plano completo em `docs/plano-sem-custo.md`.
 - **Monte Carlo** (2026-11-05): 66 tarefas × B = 1.000 (grade 5 planos × 3 orçamentos × 3 cenários de custo + curva de m do plano 3 no orçamento 400). Um fluxo L'Ecuyer-CMRG por tarefa a partir de `SEMENTE` (resultado independe de `N_NUCLEOS`); a amostra oficial segue no gerador padrão. Saída: `resultados/simulacao.rds` (réplicas, `resumo`, `estabilidade`, diagnósticos). Figuras e tabelas finais ficam para a etapa 7.
 - **Plano 3, par (m, k)** (2026-11-05): "melhor a priori", o (m, k, k_SP) de menor margem a priori em cada orçamento e cenário (`plano3_escolhido` em `resultados/desenho.rds`; grade de m até 500). Central: 200 → 120 × 2; 400 → 160 × 4 (amostra oficial); 800 → 350 × 3. O Monte Carlo inclui também uma curva de m no orçamento 400 (`fig-m-vs-k`).

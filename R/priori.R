@@ -1,6 +1,8 @@
 # =============================================================================
-# priori.R — desenho de todos os planos por orçamento e cenário de custo, e
-# margem de erro a priori calculada com 2018 como proxy (antes de olhar 2022).
+# priori.R — desenho de todos os planos para cada n (N_TAMANHOS) e margem de
+# erro a priori calculada com 2018 como proxy (antes de olhar 2022).
+# No plano 3: k = K_PLANO3 em todos os n, mais a curva k ∈ K_CURVA em
+# n = N_REFERENCIA.
 #
 # População proxy: seções pareadas, com y = abstenções 2018 e x = aptos 2018.
 # Variâncias de planejamento (populacionais, por linearização):
@@ -64,16 +66,13 @@ if (sys.nframe() == 0) {
   pp <- proxy_2018(d)
   q  <- qnorm(1 - (1 - CONF) / 2)
 
+  margem_p3 <- function(t) q * sqrt(var_priori_plano3(pp, qm, t$m, t$k, t$k_SP))
+
   desenhos <- list(); linhas <- list()
-  for (r in RAZOES_SENSIBILIDADE) for (n in N_AAS_ORCAMENTO) {
-    ds <- desenhar(n, d, qm, c1 = r * C2, c2 = C2)
-    # Plano 3: margem a priori de cada (m, k) e escolha do par de menor margem
-    # (decidido em 2026-11-05: "melhor a priori" em cada orçamento e cenário)
-    ds$plano3[, margem := q * sqrt(mapply(function(m, k, kc)
-      var_priori_plano3(pp, qm, m, k, kc), m, k, k_SP))]
-    ds$plano3_escolhido <- ds$plano3[which.min(margem)]
-    desenhos[[sprintf("c%d_n%d", r, n)]] <- ds
-    base <- data.table(razao_c1_c2 = r, n_ref = n, orcamento = ds$orcamento)
+  for (n in N_TAMANHOS) {
+    ds <- desenhar(n, d, qm)
+    ds$plano3[, margem := margem_p3(ds$plano3)]
+    base <- data.table(grupo = "grade", n_ref = n)
     linhas[[length(linhas) + 1]] <- rbind(
       cbind(base, plano = "1 AAS", m = NA, k = NA, n_secoes = ds$aas$n,
             margem = q * sqrt(var_priori_aas(pp, ds$aas$n))),
@@ -84,10 +83,18 @@ if (sys.nframe() == 0) {
             n_secoes = ds$neyman$n,
             margem = q * sqrt(var_priori_estrat(pp, ds$neyman$nh))),
       ds$plano3[, cbind(base, plano = "3 Dois estágios", m = m, k = k,
-                        n_secoes = round(secoes_esperadas),
-                        margem = margem)],
+                        n_secoes = round(secoes_esperadas), margem = margem)],
       cbind(base, plano = "4 Razão com auxiliar 2018", m = NA, k = NA,
             n_secoes = ds$plano4$n, margem = NA_real_))
+    # Curva de k do plano 3 no tamanho de referência
+    if (n == N_REFERENCIA) {
+      cur <- rbindlist(lapply(K_CURVA, dimensionar_plano3, n = n, qm = qm))
+      cur[, margem := sapply(seq_len(.N), function(j) margem_p3(cur[j]))]
+      ds$plano3_curva <- cur
+      linhas[[length(linhas) + 1]] <- cur[, .(grupo = "curva_k", n_ref, plano = "3 Dois estágios",
+                                              m, k, n_secoes = round(secoes_esperadas), margem)]
+    }
+    desenhos[[sprintf("n%d", n)]] <- ds
   }
   margens <- rbindlist(linhas)
   margens[, margem_pp := round(100 * margem, 3)]
@@ -96,15 +103,13 @@ if (sys.nframe() == 0) {
   saveRDS(desenhos, file.path(DIR_RESULTADOS, "desenho.rds"))
   fwrite(margens, file.path(DIR_RESULTADOS, "margem-priori.csv"))
 
-  # Resumo: planos 1, 2 e o melhor m do plano 3, cenário central
-  cat("Margem de erro a priori (p.p.), c1/c2 =", RAZAO_C1_C2, "\n")
-  cen <- margens[razao_c1_c2 == RAZAO_C1_C2]
-  print(cen[plano != "3 Dois estágios", .(n_ref, plano, n_secoes, margem_pp)])
-  print(cen[plano == "3 Dois estágios", .(n_ref, m, k, n_secoes, margem_pp)])
-  cat("\nMelhor m do plano 3 por cenário:\n")
-  print(margens[plano == "3 Dois estágios", .SD[which.min(margem)],
-                by = .(razao_c1_c2, n_ref)][, .(razao_c1_c2, n_ref, m, k, margem_pp)])
-  cat("\nAAS e Neyman por cenário:\n")
-  print(dcast(margens[plano %in% c("1 AAS", "2 Estrat. Neyman")],
-              razao_c1_c2 + n_ref ~ plano, value.var = "margem_pp"))
+  cat("Margem de erro a priori (p.p.), proxy 2018, mesmo n em todos os planos\n")
+  print(margens[grupo == "grade", .(n_ref, plano, m, k, n_secoes, margem_pp)])
+  cat("\nPlano 3: desenho por n (k =", K_PLANO3, ")\n")
+  print(rbindlist(lapply(desenhos, `[[`, "plano3")), digits = 4)
+  cat("\nCurva de k do plano 3, n =", N_REFERENCIA, "\n")
+  print(desenhos[[sprintf("n%d", N_REFERENCIA)]]$plano3_curva, digits = 4)
+  cat("\nAlocação nh (proporcional / Neyman), n =", N_REFERENCIA, "\n")
+  dr <- desenhos[[sprintf("n%d", N_REFERENCIA)]]
+  print(rbind(proporcional = dr$proporcional$nh, neyman = dr$neyman$nh[names(dr$proporcional$nh)]))
 }

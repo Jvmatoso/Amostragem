@@ -1,15 +1,17 @@
 # =============================================================================
 # simulacao.R — amostra oficial (etapa 5) e Monte Carlo (etapa 6)
 #
-# Amostra oficial: um sorteio por plano, semente SEMENTE, no orçamento de
-# referência (AAS com n = N_AAS_REFERENCIA) e no cenário central de custo
-# (c1/c2 = RAZAO_C1_C2). Tamanhos lidos de resultados/desenho.rds (R/priori.R);
-# no plano 3 usa-se o par (m, k, k_SP) de menor margem a priori.
+# Todos os planos são comparados com o mesmo número de seções n (o modelo de
+# custo foi retirado em 2026-11-17).
+#
+# Amostra oficial: um sorteio por plano, semente SEMENTE, com n = N_REFERENCIA.
+# Tamanhos lidos de resultados/desenho.rds (R/priori.R); no plano 3,
+# k = K_PLANO3.
 #
 # Monte Carlo: B réplicas de cada tarefa, onde uma tarefa é
-#   (a) "grade":   plano × orçamento × cenário de custo (5 × 3 × 3 = 45);
-#   (b) "curva_m": plano 3 em cada (m, k, k_SP) da grade, orçamento de
-#                  referência e cenário central (para a fig-m-vs-k).
+#   (a) "grade":   plano × n (5 × 3 = 15);
+#   (b) "curva_k": plano 3 com cada k de K_CURVA em n = N_REFERENCIA
+#                  (para a fig-m-vs-k).
 # Cada tarefa tem o seu próprio fluxo de números aleatórios (L'Ecuyer-CMRG,
 # gerados em ordem fixa a partir de SEMENTE), então o resultado não depende
 # do número de processos paralelos.
@@ -20,7 +22,7 @@
 #
 # Gera resultados/amostra-oficial.rds e resultados/simulacao.rds.
 # Rodar a partir da raiz: Rscript R/simulacao.R
-# Opções (para testes): Rscript R/simulacao.R B=50 nucleos=2 saida=arq.rds
+# Opções (para testes): Rscript R/simulacao.R B=50 nucleos=2 saida=arq.rds oficial=arq2.rds
 # =============================================================================
 source("R/config.R")
 source("R/planos.R")
@@ -31,10 +33,12 @@ suppressPackageStartupMessages(library(parallel))
 PLANOS <- c("1 AAS", "2 Estrat. proporcional", "2 Estrat. Neyman",
             "3 Dois estágios", "4 Razão com auxiliar 2018")
 
+chave_n <- function(n) sprintf("n%d", n)
+
 # Sorteia, coleta e estima um plano. 'des' é um elemento de desenho.rds;
-# 'p3' é a linha (m, k, k_SP) do plano 3 (por padrão, a escolhida a priori).
+# 'p3' é a linha (m, k, k_SP) do plano 3 (por padrão, a de k = K_PLANO3).
 sortear_e_estimar <- function(plano, des, d, qm, lin, tot, lin_h = NULL,
-                              p3 = des$plano3_escolhido) {
+                              p3 = des$plano3) {
   am <- switch(plano,
     "1 AAS"                  = coletar(d, sel_aas(tot$N, des$aas$n)),
     "2 Estrat. proporcional" = coletar(d, sel_estrat(d, des$proporcional$nh, lin_h)),
@@ -48,8 +52,7 @@ sortear_e_estimar <- function(plano, des, d, qm, lin, tot, lin_h = NULL,
     "3 Dois estágios"        = est_plano3(am, tot$N_SP),
     "4 Razão com auxiliar 2018" = est_plano4(am, tot$pareado))
   list(amostra = am, est = est,
-       custo = custo_realizado(am, des$c1, des$c2),
-       secoes = nrow(am), municipios = uniqueN(am$cd_municipio_tse))
+       secoes = nrow(am), municipios = n_municipios(am))
 }
 
 # Gabarito (só para avaliação): R de todas as seções e do subconjunto pareado
@@ -74,26 +77,25 @@ montar_tarefas <- function(desenhos) {
   nova <- function(grupo, chave, plano, p3) {
     des <- desenhos[[chave]]
     list(id = length(tarefas) + 1L, grupo = grupo, chave = chave,
-         razao_c1_c2 = des$c1 / des$c2, n_ref = des$n_ref,
-         orcamento = des$orcamento, plano = plano,
+         n_ref = des$n_ref, plano = plano,
          m = if (is.null(p3)) NA_real_ else p3$m,
          k = if (is.null(p3)) NA_real_ else p3$k,
          k_SP = if (is.null(p3)) NA_real_ else p3$k_SP, p3 = p3)
   }
-  # (a) grade principal: cenário de custo × orçamento × plano
-  for (r in RAZOES_SENSIBILIDADE) for (n in N_AAS_ORCAMENTO) {
-    chave <- sprintf("c%d_n%d", r, n)
+  # (a) grade principal: n × plano
+  for (n in N_TAMANHOS) {
+    chave <- chave_n(n)
     for (p in PLANOS) {
-      p3 <- if (p == "3 Dois estágios") as.list(desenhos[[chave]]$plano3_escolhido)
+      p3 <- if (p == "3 Dois estágios") as.list(desenhos[[chave]]$plano3)
       tarefas[[length(tarefas) + 1]] <- nova("grade", chave, p, p3)
     }
   }
-  # (b) curva de m do plano 3: orçamento de referência, cenário central
-  chave <- sprintf("c%d_n%d", RAZAO_C1_C2, N_AAS_REFERENCIA)
-  g3 <- desenhos[[chave]]$plano3
-  for (j in seq_len(nrow(g3)))
-    tarefas[[length(tarefas) + 1]] <- nova("curva_m", chave, "3 Dois estágios",
-                                           as.list(g3[j]))
+  # (b) curva de k do plano 3 no tamanho de referência
+  chave <- chave_n(N_REFERENCIA)
+  cur <- desenhos[[chave]]$plano3_curva
+  for (j in seq_len(nrow(cur)))
+    tarefas[[length(tarefas) + 1]] <- nova("curva_k", chave, "3 Dois estágios",
+                                           as.list(cur[j]))
   tarefas
 }
 
@@ -115,15 +117,15 @@ replicar <- function(t, B, desenhos, d, qm, lin, lin_h, tot) {
   RNGkind("L'Ecuyer-CMRG")
   assign(".Random.seed", t$semente, envir = globalenv())
   des <- desenhos[[t$chave]]
-  R <- v <- li <- ls <- custo <- sec <- mun <- numeric(B)
+  R <- v <- li <- ls <- sec <- mun <- numeric(B)
   for (b in seq_len(B)) {
     r <- sortear_e_estimar(t$plano, des, d, qm, lin, tot, lin_h, p3 = t$p3)
     R[b] <- r$est$R; v[b] <- r$est$var
     li[b] <- r$est$ic_inf; ls[b] <- r$est$ic_sup
-    custo[b] <- r$custo; sec[b] <- r$secoes; mun[b] <- r$municipios
+    sec[b] <- r$secoes; mun[b] <- r$municipios
   }
   data.table(id = t$id, b = seq_len(B), R = R, var = v, ic_inf = li,
-             ic_sup = ls, custo = custo, secoes = sec, municipios = mun)
+             ic_sup = ls, secoes = sec, municipios = mun)
 }
 
 # Chamada nos processos paralelos: usa os objetos carregados em cada um
@@ -155,8 +157,7 @@ rodar_mc <- function(tarefas, B, nucleos, desenhos, d, qm, lin, lin_h, tot) {
 # Metadados das tarefas (sem a semente) em formato de tabela
 tabela_tarefas <- function(tarefas) {
   rbindlist(lapply(tarefas, function(t)
-    data.table(id = t$id, grupo = t$grupo, razao_c1_c2 = t$razao_c1_c2,
-               n_ref = t$n_ref, orcamento = t$orcamento, plano = t$plano,
+    data.table(id = t$id, grupo = t$grupo, n_ref = t$n_ref, plano = t$plano,
                m = t$m, k = t$k, k_SP = t$k_SP)))
 }
 
@@ -186,7 +187,7 @@ var_pop_plano4 <- function(pp, n) {
 # diferença entre 2018 e 2022.
 var_analitica_2022 <- function(tt, desenhos, pp22, pp22_par, qm) {
   sapply(seq_len(nrow(tt)), function(i) {
-    t <- tt[i]; des <- desenhos[[sprintf("c%d_n%d", t$razao_c1_c2, t$n_ref)]]
+    t <- tt[i]; des <- desenhos[[chave_n(t$n_ref)]]
     switch(t$plano,
       "1 AAS"                  = var_priori_aas(pp22, des$aas$n),
       "2 Estrat. proporcional" = var_priori_estrat(pp22, des$proporcional$nh),
@@ -213,7 +214,6 @@ resumir_mc <- function(rep, tt, g, pp22, pp22_par, desenhos, qm, margens18) {
                 cobertura = mean(ic_inf <= R0 & R0 <= ic_sup),
                 margem_empirica = q * sd(R),
                 margem_estimada_media = q * mean(sqrt(var)),
-                custo_medio = mean(custo), custo_dp = sd(custo),
                 secoes_media = mean(secoes), munic_media = mean(municipios),
                 gabarito = R0[1]),
             by = .(id, alvo)]
@@ -226,28 +226,27 @@ resumir_mc <- function(rep, tt, g, pp22, pp22_par, desenhos, qm, margens18) {
     if (p == "4 Razão com auxiliar 2018") var_priori_aas(pp22_par, n)
     else var_priori_aas(pp22, n), plano, round(secoes_media))]
   res[, deff := var_verd / var_aas_mesmo_n]
-  # Eficiência a custo igual: EQM da AAS no mesmo orçamento / EQM do plano
-  aas <- res[grupo == "grade" & plano == "1 AAS",
-             .(razao_c1_c2, n_ref, eqm_aas = eqm)]
-  res <- merge(res, aas, by = c("razao_c1_c2", "n_ref"), all.x = TRUE)
-  res[, eficiencia_custo := eqm_aas / eqm]
+  # Eficiência relativa: EQM da AAS com o mesmo n / EQM do plano
+  # (a AAS é avaliada contra o gabarito total)
+  aas <- res[grupo == "grade" & plano == "1 AAS", .(n_ref, eqm_aas = eqm)]
+  res <- merge(res, aas, by = "n_ref", all.x = TRUE)
+  res[, eficiencia := eqm_aas / eqm]
   # Margens: a priori (2018), analítica com 2022, empírica (entre réplicas)
   res[, margem_analitica_2022 :=
         q * sqrt(var_analitica_2022(res, desenhos, pp22, pp22_par, qm))]
-  m18 <- margens18[, .(razao_c1_c2, n_ref, plano, m, k, margem_priori_2018 = margem)]
-  res <- merge(res, m18, by = c("razao_c1_c2", "n_ref", "plano", "m", "k"),
-               all.x = TRUE)
-  setorder(res, grupo, razao_c1_c2, n_ref, plano, m, alvo)
+  m18 <- unique(margens18[, .(n_ref, plano, m, k, margem_priori_2018 = margem)])
+  res <- merge(res, m18, by = c("n_ref", "plano", "m", "k"), all.x = TRUE)
+  setorder(res, grupo, n_ref, plano, k, alvo)
   res[]
 }
 
 # EQM acumulado ao longo das réplicas (estabilidade de B)
 estabilidade_eqm <- function(rep, tt, g, passos = 100) {
-  rr <- merge(rep, tt[grupo == "grade", .(id, plano, razao_c1_c2, n_ref)], by = "id")
+  rr <- merge(rep, tt[grupo == "grade", .(id, plano, n_ref)], by = "id")
   rr[, R0 := g$total]
   setorder(rr, id, b)
   rr[, eqm_acum := cumsum((R - R0)^2) / b, by = id]
-  rr[b %% passos == 0, .(id, plano, razao_c1_c2, n_ref, b, eqm_acum)]
+  rr[b %% passos == 0, .(id, plano, n_ref, b, eqm_acum)]
 }
 
 # Correlação intraclasse (ANOVA, grupos de tamanhos desiguais) de v em grupos g
@@ -261,28 +260,19 @@ icc_anova <- function(v, g) {
   list(rho = (msb - msw) / (msb + (n0 - 1) * msw), n0 = n0, G = G)
 }
 
-# Diagnóstico da Neyman a custo igual (cenário central): por estrato, desvios
-# de 2018 e 2022, alocações e custo marginal de uma seção a mais.
-diag_neyman <- function(d, desenhos, pp22, qm) {
+# Comparação Neyman × proporcional a n igual: por estrato, desvios de 2018
+# (usados na alocação) e de 2022, alocações e variâncias analíticas de 2022.
+diag_neyman <- function(d, desenhos, pp22) {
   Nh <- c(table(d$nm_regiao_int))
   Sh18 <- desvios_neyman_2018(d)[names(Nh)]
   Sh22 <- pp22[, .(S = sd(dd)), by = regiao][match(names(Nh), regiao), S]
-  munic <- qm[, .N, by = regiao][match(names(Nh), regiao), N]
-  rbindlist(lapply(N_AAS_ORCAMENTO, function(n) {
-    des <- desenhos[[sprintf("c%d_n%d", RAZAO_C1_C2, n)]]
+  rbindlist(lapply(N_TAMANHOS, function(n) {
+    des <- desenhos[[chave_n(n)]]
     pr <- des$proporcional$nh[names(Nh)]; ny <- des$neyman$nh[names(Nh)]
-    base_pr <- custo_estrat(pr, qm, Nh); base_ny <- custo_estrat(ny, qm, Nh)
-    cm <- function(nh, base) sapply(names(Nh), function(h) {
-      nh2 <- nh; nh2[h] <- nh2[h] + 1; custo_estrat(nh2, qm, Nh) - base })
-    # Neyman com o mesmo nº de seções da proporcional (comparação a n igual)
-    ny_mesmo_n <- alocar(sum(pr), Nh, Nh * Sh18)
-    data.table(n_ref = n, regiao = names(Nh), Nh = Nh, municipios = munic,
+    data.table(n_ref = n, regiao = names(Nh), Nh = Nh,
                Sh_2018 = Sh18, Sh_2022 = Sh22, nh_prop = pr, nh_neyman = ny,
-               custo_marginal_prop = cm(pr, base_pr),
-               custo_marginal_neyman = cm(ny, base_ny),
                var_prop_2022 = var_priori_estrat(pp22, pr),
-               var_neyman_2022 = var_priori_estrat(pp22, ny),
-               var_neyman_mesmo_n_2022 = var_priori_estrat(pp22, ny_mesmo_n))
+               var_neyman_2022 = var_priori_estrat(pp22, ny))
   }))
 }
 
@@ -310,6 +300,7 @@ if (sys.nframe() == 0) {
   B_mc    <- as.integer(opc("B", B))
   nucleos <- as.integer(opc("nucleos", N_NUCLEOS))
   saida   <- opc("saida", ARQ_SIMULACAO)
+  saida_oficial <- opc("oficial", ARQ_AMOSTRA)
 
   d     <- carregar_secoes()
   qm    <- quadro_municipios(d)
@@ -317,7 +308,7 @@ if (sys.nframe() == 0) {
   lin_h <- linhas_por_estrato(d)
   tot   <- totais_conhecidos(d)
   desenhos <- readRDS(file.path(DIR_RESULTADOS, "desenho.rds"))
-  des <- desenhos[[sprintf("c%d_n%d", RAZAO_C1_C2, N_AAS_REFERENCIA)]]
+  des <- desenhos[[chave_n(N_REFERENCIA)]]
 
   # --- Etapa 5: amostra oficial (gerador padrão do R) ---------------------------
   set.seed(SEMENTE)
@@ -330,28 +321,24 @@ if (sys.nframe() == 0) {
     alvo <- if (p == "4 Razão com auxiliar 2018") c("pareado", "total") else "total"
     rbindlist(lapply(alvo, function(a) {
       av <- avaliar(o$est, g[[a]])
-      data.table(plano = p, gabarito_usado = a, secoes = o$secoes,
-                 municipios = o$municipios, custo = o$custo,
-                 orcamento = des$orcamento,
+      data.table(plano = p, gabarito_usado = a, n_ref = N_REFERENCIA,
+                 secoes = o$secoes, municipios = o$municipios,
                  R = o$est$R, ep = o$est$ep, ic_inf = o$est$ic_inf,
                  ic_sup = o$est$ic_sup, gabarito = g[[a]],
                  erro = av$erro, cobre = av$cobre)
     }))
   }))
 
-  saveRDS(list(semente = SEMENTE, razao_c1_c2 = RAZAO_C1_C2,
-               n_ref = N_AAS_REFERENCIA, orcamento = des$orcamento,
-               plano3 = des$plano3_escolhido, gabarito = g,
+  dir.create(dirname(saida_oficial), showWarnings = FALSE, recursive = TRUE)
+  saveRDS(list(semente = SEMENTE, n_ref = N_REFERENCIA,
+               plano3 = des$plano3, gabarito = g,
                amostras = lapply(oficial, `[[`, "amostra"), tabela = tab),
-          ARQ_AMOSTRA)
+          saida_oficial)
 
-  cat("Amostra oficial — orçamento", round(des$orcamento, 1),
-      "(AAS n =", N_AAS_REFERENCIA, "), c1/c2 =", RAZAO_C1_C2, "\n")
+  cat("Amostra oficial — n =", N_REFERENCIA, "seções em todos os planos\n")
   cat(sprintf("Plano 3: m = %d, k = %d, k_SP = %d\n",
-              des$plano3_escolhido$m, des$plano3_escolhido$k,
-              des$plano3_escolhido$k_SP))
+              des$plano3$m, des$plano3$k, des$plano3$k_SP))
   print(tab[, .(plano, gab = gabarito_usado, secoes, municipios,
-                custo = round(custo, 1),
                 R = sprintf("%.3f", 100 * R), ep = sprintf("%.3f", 100 * ep),
                 ic = sprintf("[%.2f; %.2f]", 100 * ic_inf, 100 * ic_sup),
                 gabarito = sprintf("%.3f", 100 * gabarito),
@@ -374,7 +361,7 @@ if (sys.nframe() == 0) {
   estab  <- estabilidade_eqm(rep, tt, g)
   fora   <- pp22[capital == FALSE]
   icc    <- icc_anova(fora$dd, fora$cd_municipio_tse)
-  dn     <- diag_neyman(d, desenhos, pp22, qm)
+  dn     <- diag_neyman(d, desenhos, pp22)
   d4     <- diag_plano4(pp22_par)
 
   dir.create(dirname(saida), showWarnings = FALSE, recursive = TRUE)
@@ -384,35 +371,36 @@ if (sys.nframe() == 0) {
                tempo_min = tempo[["elapsed"]] / 60), saida)
   cat("Salvo em", saida, "\n")
 
-  # --- Resumo na tela (cenário central, gabarito total) -----------------------------
+  # --- Resumo na tela (gabarito total) ---------------------------------------------
   pc <- function(x, dig = 3) sprintf(paste0("%.", dig, "f"), 100 * x)
-  cat("\nDesempenho (c1/c2 =", RAZAO_C1_C2, ", gabarito total), em p.p.:\n")
-  print(resumo[grupo == "grade" & razao_c1_c2 == RAZAO_C1_C2 & alvo == "total",
+  cat("\nDesempenho a n igual (gabarito total), em p.p.:\n")
+  print(resumo[grupo == "grade" & alvo == "total",
                .(n_ref, plano, secoes = round(secoes_media), mun = round(munic_media),
-                 custo = round(custo_medio), vies = pc(vies), ep = pc(sqrt(var_verd)),
+                 vies = pc(vies), ep = pc(sqrt(var_verd)),
                  reqm = pc(reqm), cob = sprintf("%.3f", cobertura),
                  var_est_verd = sprintf("%.3f", razao_var),
-                 deff = sprintf("%.3f", deff), efic = sprintf("%.3f", eficiencia_custo))])
+                 deff = sprintf("%.3f", deff), efic = sprintf("%.3f", eficiencia))])
   cat("\nPlano 4 contra o gabarito pareado:\n")
-  print(resumo[grupo == "grade" & razao_c1_c2 == RAZAO_C1_C2 & alvo == "pareado",
+  print(resumo[grupo == "grade" & alvo == "pareado",
                .(n_ref, vies = pc(vies), reqm = pc(reqm), cob = sprintf("%.3f", cobertura))])
   cat("\nMargens (p.p.): a priori 2018 / analítica 2022 / empírica / estimada média\n")
-  print(resumo[grupo == "grade" & razao_c1_c2 == RAZAO_C1_C2 & alvo == "total",
+  print(resumo[grupo == "grade" & alvo == "total",
                .(n_ref, plano, priori18 = pc(margem_priori_2018),
                  anal22 = pc(margem_analitica_2022), empir = pc(margem_empirica),
                  estim = pc(margem_estimada_media))])
-  cat("\nCurva de m (plano 3, orçamento", N_AAS_REFERENCIA, "):\n")
-  print(resumo[grupo == "curva_m",
-               .(m, k, k_SP, reqm = pc(reqm), priori18 = pc(margem_priori_2018),
+  cat("\nCurva de k (plano 3, n =", N_REFERENCIA, "):\n")
+  print(resumo[grupo == "curva_k",
+               .(m, k, k_SP, mun = round(munic_media), reqm = pc(reqm),
+                 priori18 = pc(margem_priori_2018),
                  anal22 = pc(margem_analitica_2022), empir = pc(margem_empirica),
-                 cob = sprintf("%.3f", cobertura))])
+                 cob = sprintf("%.3f", cobertura), deff = sprintf("%.3f", deff),
+                 efic = sprintf("%.3f", eficiencia))])
   cat("\nEstabilidade: erro de MC relativo do EQM (máximo por plano):\n")
   print(resumo[grupo == "grade" & alvo == "total",
                .(ep_rel_max = sprintf("%.3f", max(eqm_ep_mc / eqm))), by = plano])
   cat(sprintf("\nCorrelação intraclasse (d_i, municípios fora da capital): %.4f (n0 = %.1f, G = %d)\n",
               icc$rho, icc$n0, icc$G))
   cat("\nDiagnóstico do plano 4 (pareado 2022):\n"); print(d4)
-  cat("\nDiagnóstico da Neyman (variâncias analíticas 2022, ×1e6):\n")
-  print(unique(dn[, .(n_ref, prop = 1e6 * var_prop_2022, neyman = 1e6 * var_neyman_2022,
-                      neyman_mesmo_n = 1e6 * var_neyman_mesmo_n_2022)]))
+  cat("\nNeyman × proporcional a n igual (variâncias analíticas 2022, ×1e6):\n")
+  print(unique(dn[, .(n_ref, prop = 1e6 * var_prop_2022, neyman = 1e6 * var_neyman_2022)]))
 }

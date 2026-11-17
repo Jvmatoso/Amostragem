@@ -1,13 +1,14 @@
 # =============================================================================
-# planos.R — dimensionamento a custo igual e seleção de cada plano amostral
+# planos.R — dimensionamento por n e seleção de cada plano amostral
 #   Plano 1: AAS de seções
 #   Plano 2: estratificada por região intermediária (proporcional e Neyman)
 #   Plano 3: 2 estágios — capital autorrepresentativa (AAS de seções) +
 #            PPT com reposição de municípios (aptos) e AAS de k seções por sorteio
 #   Plano 4: AAS no subconjunto pareado (estimador de razão com auxiliar 2018)
 #
-# Modelo de custo: C = c1 * (nº de municípios distintos) + c2 * (nº de seções)
-# Orçamento = custo esperado de uma AAS com n seções (N_AAS_ORCAMENTO).
+# Todos os planos são dimensionados para o mesmo número de seções n
+# (N_TAMANHOS em config.R). O modelo de custo foi retirado em 2026-11-17; o
+# número de municípios distintos na amostra segue registrado só como descrição.
 #
 # As funções de seleção só usam o quadro (município, região, aptos de 2022,
 # que é tratado como conhecido). Os valores de y (abstenções) e z (abstenções
@@ -33,37 +34,15 @@ quadro_municipios <- function(d) {
 # Linhas da base por município (para o 2º estágio do plano 3)
 linhas_por_municipio <- function(d) split(seq_len(nrow(d)), d$cd_municipio_tse)
 
-# --- Custo esperado ------------------------------------------------------------
-
 # Nº esperado de municípios distintos numa AAS de n seções de um quadro com
 # Ni seções por município: soma de P(município i aparece) = 1 - C(N-Ni, n)/C(N, n).
+# (Só descritivo.)
 n_munic_esperado_aas <- function(Ni, n) {
   N <- sum(Ni)
   sum(1 - exp(lchoose(N - Ni, n) - lchoose(N, n)))
 }
 
-custo_aas <- function(n, Ni, c1 = C1, c2 = C2) {
-  c1 * n_munic_esperado_aas(Ni, n) + c2 * n
-}
-
-# Orçamento de referência: custo esperado de uma AAS de n seções (quadro completo)
-orcamento <- function(n, qm, c1 = C1, c2 = C2) custo_aas(n, qm$Ni, c1, c2)
-
-# Busca binária do menor inteiro n com custo >= orc; devolve o mais próximo
-resolver_n <- function(f_custo, orc, lo = 2, hi = 20000) {
-  while (hi - lo > 1) {
-    meio <- (lo + hi) %/% 2
-    if (f_custo(meio) < orc) lo <- meio else hi <- meio
-  }
-  if (abs(f_custo(lo) - orc) <= abs(f_custo(hi) - orc)) lo else hi
-}
-
 # --- Plano 1: AAS ----------------------------------------------------------------
-
-dimensionar_aas <- function(orc, Ni, c1 = C1, c2 = C2) {
-  n <- resolver_n(function(n) custo_aas(n, Ni, c1, c2), orc)
-  list(n = n, custo = custo_aas(n, Ni, c1, c2))
-}
 
 sel_aas <- function(N, n) {
   i <- sample.int(N, n)
@@ -94,13 +73,6 @@ alocar <- function(n, Nh, w, minimo = 2) {
   setNames(as.integer(nh), names(Nh))
 }
 
-# Custo esperado da estratificada: dentro do estrato h é uma AAS de nh seções;
-# cada município pertence a um único estrato (regiões são uniões de municípios).
-custo_estrat <- function(nh, qm, Nh, c1 = C1, c2 = C2) {
-  n_i <- nh[qm$regiao]; N_i <- Nh[qm$regiao]
-  c1 * sum(1 - exp(lchoose(N_i - qm$Ni, n_i) - lchoose(N_i, n_i))) + c2 * sum(nh)
-}
-
 # Desvio-padrão por estrato para a Neyman, calculado em 2018 (nunca em 2022):
 # Sh = dp de d_i = z_i - R2018 * aptos2018_i nas seções pareadas do estrato.
 desvios_neyman_2018 <- function(d) {
@@ -111,14 +83,13 @@ desvios_neyman_2018 <- function(d) {
   setNames(s$Sh, s$nm_regiao_int)
 }
 
-dimensionar_estrat <- function(orc, tipo = c("proporcional", "neyman"),
-                               qm, Nh, Sh = NULL, c1 = C1, c2 = C2) {
+# Alocação de n seções entre os estratos; confere que a soma dá n
+dimensionar_estrat <- function(n, tipo = c("proporcional", "neyman"), Nh, Sh = NULL) {
   tipo <- match.arg(tipo)
   w <- if (tipo == "proporcional") Nh else Nh * Sh[names(Nh)]
-  f <- function(n) custo_estrat(alocar(n, Nh, w), qm, Nh, c1, c2)
-  n <- resolver_n(f, orc, lo = 2 * length(Nh))
   nh <- alocar(n, Nh, w)
-  list(n = sum(nh), nh = nh, custo = custo_estrat(nh, qm, Nh, c1, c2))
+  stopifnot(sum(nh) == n)
+  list(n = sum(nh), nh = nh)
 }
 
 # Linhas da base por estrato (pré-calculadas uma vez para acelerar o Monte Carlo)
@@ -141,47 +112,23 @@ sel_estrat <- function(d, nh, lin_h = NULL) {
 # Demais 644 municípios: m sorteios PPT com reposição (p_i = Mi / M_outros);
 # em cada sorteio, AAS de k_i = min(k, Ni) seções, independente das outras
 # vezes em que o mesmo município for sorteado (padrão Hansen–Hurwitz).
-# Custo: c1 é cobrado uma vez por município distinto (capital incluída);
-# c2 por seção sorteada (contagem nominal: k_SP + soma dos k_i).
 
-custo_plano3 <- function(m, k, k_SP, qm, c1 = C1, c2 = C2) {
+# Desenho para n seções (decidido em 2026-11-17):
+#   k_SP = round(fatia de aptos da capital × n);
+#   m    = round((n - k_SP) / E[min(k, Ni)]), E sob p_i, para que as seções
+#          esperadas k_SP + m E[min(k, Ni)] fiquem o mais perto possível de n.
+dimensionar_plano3 <- function(n, k, qm) {
   o <- qm[capital == FALSE]
-  p <- o$Mi / sum(o$Mi)
-  munic <- 1 + sum(1 - (1 - p)^m)              # capital + distintos esperados
-  secoes <- k_SP + m * sum(p * pmin(k, o$Ni))  # seções esperadas
-  c1 * munic + c2 * secoes
-}
-
-# Para cada m, escolhe o k que deixa a fração de seções da capital mais perto
-# da fatia de aptos da capital; k_SP absorve o restante do orçamento.
-# Combinações em que a fração da capital fica a mais de 'tol' da fatia de aptos
-# são descartadas (k saturado: municípios pequenos já entram inteiros).
-grade_plano3 <- function(orc, qm, c1 = C1, c2 = C2,
-                         ms = c(3:10, 12, 15, 20, 25, 30, 40, 50, 60, 80,
-                                100, 120, 140, 160, 180, 200, 250, 300,
-                                350, 400, 450, 500),
-                         ks = NULL, tol = 0.05) {
-  o <- qm[capital == FALSE]
-  if (is.null(ks)) ks <- 2:max(o$Ni)
   p <- o$Mi / sum(o$Mi)
   fatia <- qm[capital == TRUE, Mi] / sum(qm$Mi)
-  N_SP <- qm[capital == TRUE, Ni]
-  res <- lapply(ms, function(m) {
-    munic <- 1 + sum(1 - (1 - p)^m)
-    sec_o <- sapply(ks, function(k) m * sum(p * pmin(k, o$Ni)))
-    k_SP <- round((orc - c1 * munic) / c2 - sec_o)
-    ok <- k_SP >= 2 & k_SP <= N_SP
-    if (!any(ok)) return(NULL)
-    dif <- abs(k_SP / (k_SP + sec_o) - fatia); dif[!ok] <- Inf
-    j <- which.min(dif)
-    if (dif[j] > tol) return(NULL)
-    data.table(m = m, k = ks[j], k_SP = k_SP[j],
-               secoes_esperadas = k_SP[j] + sec_o[j],
-               munic_esperados = munic,
-               fracao_capital = k_SP[j] / (k_SP[j] + sec_o[j]),
-               custo = custo_plano3(m, ks[j], k_SP[j], qm, c1, c2))
-  })
-  rbindlist(res)
+  k_SP <- round(fatia * n)
+  e_k  <- sum(p * pmin(k, o$Ni))           # seções esperadas por sorteio
+  m    <- max(2, round((n - k_SP) / e_k))  # m >= 2 (variância de HH)
+  sec  <- k_SP + m * e_k
+  data.table(n_ref = n, m = m, k = k, k_SP = k_SP,
+             secoes_esperadas = sec,
+             munic_esperados = 1 + sum(1 - (1 - p)^m),   # capital + distintos
+             fracao_capital = k_SP / sec)
 }
 
 sel_plano3 <- function(d, qm, linhas, m, k, k_SP) {
@@ -214,11 +161,6 @@ sel_plano3 <- function(d, qm, linhas, m, k, k_SP) {
 
 # --- Plano 4: AAS no subconjunto pareado ----------------------------------------
 
-dimensionar_plano4 <- function(orc, qm, c1 = C1, c2 = C2) {
-  n <- resolver_n(function(n) custo_aas(n, qm$Ni_par, c1, c2), orc)
-  list(n = n, custo = custo_aas(n, qm$Ni_par, c1, c2))
-}
-
 sel_plano4 <- function(d, n) {
   linhas <- which(d$pareada)
   N <- length(linhas)
@@ -234,21 +176,19 @@ coletar <- function(d, sel) {
                         z = abstencoes_2018, x18 = aptos_2018)])
 }
 
-# Custo realizado de uma amostra (municípios distintos e seções nominais)
-custo_realizado <- function(am, c1 = C1, c2 = C2) {
-  c1 * uniqueN(am$cd_municipio_tse) + c2 * nrow(am)
-}
+# Nº de municípios distintos numa amostra coletada (só descritivo)
+n_municipios <- function(am) uniqueN(am$cd_municipio_tse)
 
-# --- Desenho completo para um orçamento ---------------------------------------------
-# Devolve os tamanhos de todos os planos para o orçamento de uma AAS de n_ref seções.
-desenhar <- function(n_ref, d, qm, c1 = C1, c2 = C2) {
+# --- Desenho completo para n seções -------------------------------------------------
+# Devolve os tamanhos de todos os planos para n seções; no plano 3, com k
+# seções por sorteio fora da capital.
+desenhar <- function(n, d, qm, k = K_PLANO3) {
   Nh <- c(table(d$nm_regiao_int))
   Sh <- desvios_neyman_2018(d)
-  orc <- orcamento(n_ref, qm, c1, c2)
-  list(n_ref = n_ref, c1 = c1, c2 = c2, orcamento = orc,
-       aas = dimensionar_aas(orc, qm$Ni, c1, c2),
-       proporcional = dimensionar_estrat(orc, "proporcional", qm, Nh, NULL, c1, c2),
-       neyman = dimensionar_estrat(orc, "neyman", qm, Nh, Sh, c1, c2),
-       plano3 = grade_plano3(orc, qm, c1, c2),
-       plano4 = dimensionar_plano4(orc, qm, c1, c2))
+  list(n_ref = n,
+       aas = list(n = n, munic_esperados = n_munic_esperado_aas(qm$Ni, n)),
+       proporcional = dimensionar_estrat(n, "proporcional", Nh),
+       neyman = dimensionar_estrat(n, "neyman", Nh, Sh),
+       plano3 = dimensionar_plano3(n, k, qm),
+       plano4 = list(n = n, munic_esperados = n_munic_esperado_aas(qm$Ni_par, n)))
 }

@@ -1,8 +1,11 @@
 # =============================================================================
 # config.R — configuração central do projeto (ME430, Trabalho Final)
-# Única fonte de semente, B, orçamentos, custos e caminhos.
+# Única fonte de semente, B, tamanhos de amostra e caminhos.
 # O relatorio.Rmd e os scripts fazem source("R/config.R").
 # Rodar sempre a partir da raiz do projeto (caminhos relativos).
+#
+# Em 2026-11-17 o modelo de custo foi retirado (ver docs/registro.md): os
+# planos passam a ser comparados com o mesmo número de seções n.
 # =============================================================================
 
 # --- Reprodutibilidade --------------------------------------------------------
@@ -12,20 +15,18 @@ SEMENTE <- 430                      # semente única do projeto
 # com um fluxo independente por tarefa (ver R/simulacao.R).
 
 # --- Monte Carlo --------------------------------------------------------------
-B <- 1000                           # réplicas por plano e orçamento (checar estabilidade do EQM)
+B <- 1000                           # réplicas por plano e tamanho (checar estabilidade do EQM)
 N_NUCLEOS <- 6                      # processos paralelos no Monte Carlo (o resultado não depende disso)
 
-# --- Orçamentos ---------------------------------------------------------------
-# Orçamento = custo esperado de uma AAS com estes tamanhos de amostra
-N_AAS_ORCAMENTO <- c(200, 400, 800)
-N_AAS_REFERENCIA <- 400             # orçamento da amostra oficial
+# --- Tamanhos de amostra (nº de seções, iguais para todos os planos) ----------
+N_TAMANHOS   <- c(200, 400, 800)
+N_REFERENCIA <- 400                 # tamanho da amostra oficial
 
-# --- Modelo de custo: C = c1 * (nº de municípios distintos) + c2 * (nº de seções)
-# Decidido em 2026-11-05: visitar um município custa o equivalente a obter 10 seções.
-C2 <- 1                             # custo por seção (unidade de custo)
-RAZAO_C1_C2 <- 10                   # cenário central
-C1 <- RAZAO_C1_C2 * C2              # custo por município
-RAZOES_SENSIBILIDADE <- c(5, 10, 20)
+# --- Plano 3 (dois estágios) -------------------------------------------------
+# Decidido em 2026-11-17: k fixo = 4 seções por sorteio fora da capital em
+# todos os n; curva de k em n = N_REFERENCIA.
+K_PLANO3 <- 4
+K_CURVA  <- c(1, 2, 4, 8)
 
 # --- Nível de confiança -------------------------------------------------------
 CONF <- 0.95

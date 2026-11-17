@@ -1,8 +1,10 @@
 # =============================================================================
 # validar-survey.R — valida as funções próprias de planos.R e estimadores.R
 #   (a) estimativa e EP de cada plano contra o pacote survey (mesma amostra);
-#   (b) custo realizado médio de R réplicas contra o orçamento de referência.
-# Gera resultados/validacao-survey.csv e resultados/validacao-custo.csv.
+#   (b) nº médio de seções realizadas em R réplicas contra o n planejado
+#       (e nº médio de municípios distintos, só descritivo).
+# Tudo no tamanho de referência n = N_REFERENCIA.
+# Gera resultados/validacao-survey.csv e resultados/validacao-n.csv.
 # Rodar a partir da raiz: Rscript R/validar-survey.R
 # =============================================================================
 source("R/planos.R")
@@ -14,9 +16,8 @@ d   <- carregar_secoes()
 qm  <- quadro_municipios(d)
 lin <- linhas_por_municipio(d)
 tot <- totais_conhecidos(d)
-des <- desenhar(N_AAS_REFERENCIA, d, qm)
-M3  <- 10                                    # m usado só nesta validação
-p3  <- des$plano3[m == M3]
+des <- desenhar(N_REFERENCIA, d, qm)
+p3  <- des$plano3
 
 # --- (a) Comparação com o survey -------------------------------------------------
 comparar <- function(plano, proprio, R_sv, ep_sv) {
@@ -58,27 +59,31 @@ val <- rbind(
   comparar("4 Razão com auxiliar 2018", est_plano4(a4, tot$pareado),
            coef(s4) * k4, SE(s4) * k4))
 
-# --- (b) Custo realizado médio vs orçamento ---------------------------------------
+# --- (b) n realizado médio vs n planejado -------------------------------------------
 REP <- 300
-custos <- function(f) mean(replicate(REP, custo_realizado(f())))
-cus <- data.table(
-  plano = c("1 AAS", "2 Estrat. proporcional", "2 Estrat. Neyman",
-            sprintf("3 Dois estágios (m=%d)", p3$m), "4 Razão com auxiliar 2018"),
-  n_secoes = c(des$aas$n, des$proporcional$n, des$neyman$n,
-               round(p3$secoes_esperadas), des$plano4$n),
-  custo_esperado = c(des$aas$custo, des$proporcional$custo, des$neyman$custo,
-                     p3$custo, des$plano4$custo),
-  custo_medio_realizado = c(
-    custos(function() coletar(d, sel_aas(tot$N, des$aas$n))),
-    custos(function() coletar(d, sel_estrat(d, des$proporcional$nh))),
-    custos(function() coletar(d, sel_estrat(d, des$neyman$nh))),
-    custos(function() coletar(d, sel_plano3(d, qm, lin, p3$m, p3$k, p3$k_SP))),
-    custos(function() coletar(d, sel_plano4(d, des$plano4$n))))
-)
-cus[, orcamento := des$orcamento]
+medias <- function(f) {
+  r <- replicate(REP, { am <- f(); c(nrow(am), n_municipios(am)) })
+  list(secoes = mean(r[1, ]), secoes_dp = sd(r[1, ]), munic = mean(r[2, ]))
+}
+sorteios <- list(
+  "1 AAS"                  = function() coletar(d, sel_aas(tot$N, des$aas$n)),
+  "2 Estrat. proporcional" = function() coletar(d, sel_estrat(d, des$proporcional$nh)),
+  "2 Estrat. Neyman"       = function() coletar(d, sel_estrat(d, des$neyman$nh)),
+  "3 Dois estágios"        = function() coletar(d, sel_plano3(d, qm, lin, p3$m, p3$k, p3$k_SP)),
+  "4 Razão com auxiliar 2018" = function() coletar(d, sel_plano4(d, des$plano4$n)))
+r_b <- lapply(sorteios, medias)
+val_n <- data.table(
+  plano = names(sorteios),
+  n_planejado = N_REFERENCIA,
+  secoes_esperadas = c(des$aas$n, des$proporcional$n, des$neyman$n,
+                       p3$secoes_esperadas, des$plano4$n),
+  secoes_media_realizada = sapply(r_b, `[[`, "secoes"),
+  secoes_dp_realizado = sapply(r_b, `[[`, "secoes_dp"),
+  munic_media_realizada = sapply(r_b, `[[`, "munic"))
+val_n[, dif_rel_n := secoes_media_realizada / n_planejado - 1]
 
 dir.create(DIR_RESULTADOS, showWarnings = FALSE)
 fwrite(val, file.path(DIR_RESULTADOS, "validacao-survey.csv"))
-fwrite(cus, file.path(DIR_RESULTADOS, "validacao-custo.csv"))
+fwrite(val_n, file.path(DIR_RESULTADOS, "validacao-n.csv"))
 print(val, digits = 6)
-print(cus, digits = 6)
+print(val_n, digits = 6)

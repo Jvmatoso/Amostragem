@@ -1,0 +1,6 @@
+plano,n_planejado,secoes_esperadas,secoes_media_realizada,secoes_dp_realizado,munic_media_realizada,dif_rel_n
+1 AAS,400,400,400,0,150.93,0
+2 Estrat. proporcional,400,400,400,0,152.456666666667,0
+2 Estrat. Neyman,400,400,400,0,156.25,0
+3 Dois estágios,400,399,399,0,56.7366666666667,-0.00249999999999995
+4 Razão com auxiliar 2018,400,400,400,0,149.506666666667,0
