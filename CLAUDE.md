@@ -4,7 +4,9 @@ Projeto acadêmico em R + R Markdown (IMECC/Unicamp, 2º semestre de 2026, grupo
 O enunciado completo do professor está em `docs/enunciado.md`: **seguir sua estrutura de relatório e suas regras do .Rmd** (set.seed, R inline, legendas, referências cruzadas, rótulos de chunk, entrega). Este arquivo traz o que o enunciado não diz. O livro-base (Bolfarine & Bussab) **não está no repositório**; o essencial está em "Base conceitual". Não inventar citações, páginas ou fórmulas atribuídas ao livro.
 
 ## Problema
-**Pergunta:** com orçamento limitado, qual plano amostral estima melhor a **taxa de abstenção** no 1º turno de 2022 no estado de SP?
+> **Mudança em andamento (2026-11-17):** o modelo de custo foi abandonado; os planos passam a ser comparados **a n igual**. Seguir `docs/plano-sem-custo.md` (etapas 8.1 a 8.4). Onde este arquivo ainda falar de custo ou orçamento, vale o plano novo; as seções marcadas "(revogado)" ficam só como histórico.
+
+**Pergunta:** com o mesmo número de seções n, qual plano amostral estima melhor a **taxa de abstenção** no 1º turno de 2022 no estado de SP?
 
 - Trabalho **metodológico e politicamente neutro**: nenhum candidato ou partido é analisado.
 - Dados públicos e agregados por seção, sem dados pessoais (dizer isso no relatório).
@@ -24,8 +26,10 @@ O enunciado completo do professor está em `docs/enunciado.md`: **seguir sua est
 - **Secundários (extra, só tabela):** proporção de brancos e de nulos sobre o comparecimento.
 - **Auxiliar:** abstenção de 2018 na mesma seção (pareamento por município + zona + seção). Seções sem par = falha de cobertura (erro não amostral).
 
-## Custo e orçamento
-Os planos são comparados **a custo igual**, não a n igual.
+## Custo e orçamento (revogado em 2026-11-17)
+Agora: n = 200, 400 e 800 seções para todos os planos (referência 400); margem a priori com 2018 por n. Ver `docs/plano-sem-custo.md`. Histórico abaixo.
+
+Os planos eram comparados **a custo igual**, não a n igual.
 - **Modelo:** C = c₁·(nº de municípios distintos na amostra) + c₂·(nº de seções), com c₁ > c₂. Hipóteses justificadas no relatório; sensibilidade com c₁/c₂ ∈ {5, 10, 20}.
 - **Orçamentos:** custo esperado de uma AAS com n = 200, 400 e 800 (referência: 400). Os outros planos têm tamanho ajustado para o mesmo custo esperado.
 - **Margem de erro a priori:** calcular para cada orçamento com a variabilidade de **2018** como proxy, antes de olhar 2022.
@@ -119,7 +123,7 @@ Rodar a partir da raiz. Só caminhos relativos.
 
 ## Decisões em aberto (perguntar ao usuário antes de implementar)
 Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o usuário, registrar em `docs/registro.md` e então mover o item para "Decisões tomadas".
-- Nenhuma no momento.
+- **k do plano 3 a n igual** (perguntar no início da etapa 8.1). Sugestão: k fixo = 4 em todos os n, mais curva k ∈ {1, 2, 4, 8} em n = 400. Alternativa: k de menor margem a priori com 2018 (provavelmente k = 1).
 
 ## Pendências para verificar adiante
 - Nenhuma. As três da etapa 6 (margens a priori, Neyman atrás da proporcional, EP do plano 4 igual ao da AAS) foram resolvidas no Monte Carlo; causas e números em `docs/registro.md` (2026-11-05).
@@ -127,6 +131,7 @@ Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o u
 - Compilar fora do RStudio exige `RSTUDIO_PANDOC="C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools"` (o pandoc não está no PATH).
 
 ## Decisões tomadas
+- **Sem modelo de custo** (2026-11-17): planos comparados a n igual (n = 200, 400, 800; referência 400). Revoga as decisões de custos, orçamentos, cenários c₁/c₂ e "eficiência a custo igual" abaixo, e a escolha de (m, k) do plano 3 por orçamento. Motivo: o custo de coleta não tem base real (a abstenção só existe depois da votação e o TSE divulga tudo de uma vez). Plano completo em `docs/plano-sem-custo.md`.
 - **Monte Carlo** (2026-11-05): 66 tarefas × B = 1.000 (grade 5 planos × 3 orçamentos × 3 cenários de custo + curva de m do plano 3 no orçamento 400). Um fluxo L'Ecuyer-CMRG por tarefa a partir de `SEMENTE` (resultado independe de `N_NUCLEOS`); a amostra oficial segue no gerador padrão. Saída: `resultados/simulacao.rds` (réplicas, `resumo`, `estabilidade`, diagnósticos). Figuras e tabelas finais ficam para a etapa 7.
 - **Plano 3, par (m, k)** (2026-11-05): "melhor a priori", o (m, k, k_SP) de menor margem a priori em cada orçamento e cenário (`plano3_escolhido` em `resultados/desenho.rds`; grade de m até 500). Central: 200 → 120 × 2; 400 → 160 × 4 (amostra oficial); 800 → 350 × 3. O Monte Carlo inclui também uma curva de m no orçamento 400 (`fig-m-vs-k`).
 - **Plano 3, capital e grade m × k** (2026-11-05): k_SP proporcional à fatia de aptos da capital (±5 p.p.); k comum fora da capital; subamostra independente por sorteio. Ver `docs/registro.md`.
@@ -146,6 +151,7 @@ Há uma sugestão para cada item, mas **nada está decidido**: confirmar com o u
 5. Amostra oficial.
 6. Monte Carlo.
 7. Relatório e slides (10 min).
+8. Retirada do custo (2026-11-17), uma sessão por etapa, em ordem: 8.1 código, 8.2 resultados, 8.3 relatório, 8.4 slides (8.3 e 8.4 podem ser paralelas). Ver `docs/plano-sem-custo.md`.
 Se o prazo apertar, o plano 4 vira seção menor. Extras por último: brancos/nulos, Shiny.
 
 ## Como trabalhar nesta pasta
